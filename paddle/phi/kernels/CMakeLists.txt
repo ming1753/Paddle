@@ -49,11 +49,6 @@ if(NOT WITH_DGC)
   list(REMOVE_ITEM kernel_cu "gpu/dgc_kernel.cu")
 endif()
 
-if(DEFINED REDUCE_INFERENCE_LIB_SIZE)
-  list(FILTER kernel_cu EXCLUDE REGEX ".*_grad_kernel\\.cc$")
-  list(FILTER kernel_cu EXCLUDE REGEX ".*_grad_kernel\\.cu$")
-endif()
-
 if(WITH_CUTLASS)
   execute_process(
     COMMAND
@@ -252,10 +247,6 @@ file(
   GLOB kernel_cc
   RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
   ${cc_search_pattern})
-
-if(DEFINED REDUCE_INFERENCE_LIB_SIZE)
-  list(FILTER kernel_cc EXCLUDE REGEX ".*_grad_kernel\\.cc$")
-endif()
 
 if(NOT
    (WITH_AVX
