@@ -2283,7 +2283,8 @@ struct SimpleOpTypeSetTeller : public Teller {
       const auto x_shape = x_var_desc->GetShape();
 
       auto dtype = x_var_desc->GetDataType();
-      if (dtype != framework::proto::VarType::FP32) {
+      if (dtype != framework::proto::VarType::FP32 &&
+          dtype != framework::proto::VarType::INT32) {
         return false;
       }
       if (!with_dynamic_shape && (x_shape.size() == 1 || x_shape.empty())) {
@@ -2796,6 +2797,7 @@ struct SimpleOpTypeSetTeller : public Teller {
         return false;
       }
     }
+
     if (op_type == "index_put") {
       if (!with_dynamic_shape) {
         VLOG(3) << "the index_put does not support "
@@ -2817,6 +2819,7 @@ struct SimpleOpTypeSetTeller : public Teller {
         return false;
       }
     }
+
     if (op_type == "temporal_shift") {
 #if !IS_TRT_VERSION_GE(8200)
       VLOG(3) << "temporal_shift is not supported when TensorRT < 8.2";
@@ -3078,6 +3081,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "grid_sampler",
       "cumsum",
       "unbind",
+      "index_put",
       "assign",
       "flip",
       "quantize_linear",
@@ -3250,6 +3254,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "grid_sampler",
       "cumsum",
       "unbind",
+      "index_put",
       "assign",
       "flip",
       "quantize_linear",
