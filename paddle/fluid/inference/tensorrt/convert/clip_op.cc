@@ -33,13 +33,27 @@ class ClipOpConverter : public OpConverter {
     auto* input = engine_->GetITensor(op_desc.Input("X")[0]);
     float min = PADDLE_GET_CONST(float, op_desc.GetAttr("min"));
     float max = PADDLE_GET_CONST(float, op_desc.GetAttr("max"));
+    nvinfer1::DataType input_type = input->getType();
+    nvinfer1::DataType FP32_type = nvinfer1::DataType::kFLOAT;
+    if (input_type != FP32_type) {
+      input = Cast(input, FP32_type);
+    }
+
     auto* layer = TRT_ENGINE_ADD_LAYER(
         engine_, Activation, *input, nvinfer1::ActivationType::kCLIP);
     layer->setAlpha(min);
     layer->setBeta(max);
-
+    nvinfer1::ILayer* out_layer = layer;
     auto output_name = op_desc.Output("Out")[0];
-    ReplenishLayerAndOutput(layer, "clip", {output_name}, test_mode);
+    if (input_type != FP32_type) {
+      auto* temp_out = layer->getOutput(0);
+      auto* layer_ = TRT_ENGINE_ADD_LAYER(engine_, Identity, *temp_out);
+      layer_->setOutputType(0, input_type);
+      layer_->getOutput(0)->setType(input_type);
+      out_layer = layer_;
+    }
+
+    ReplenishLayerAndOutput(out_layer, "clip", {output_name}, test_mode);
 #else
     PADDLE_THROW(
         platform::errors::Fatal("clip TRT converter is only supported on TRT "
