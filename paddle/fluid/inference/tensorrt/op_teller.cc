@@ -2796,7 +2796,27 @@ struct SimpleOpTypeSetTeller : public Teller {
         return false;
       }
     }
-
+    if (op_type == "index_put") {
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the index_put does not support "
+                   "static shape yet";
+        return false;
+      }
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+      auto indices_var_name = desc.Input("indices")[0];
+      auto* indices_var_desc = block->FindVarRecursive(indices_var_name);
+      auto dtype = indices_var_desc->GetDataType();
+      if (dtype != framework::proto::VarType::BOOL) {
+        VLOG(3) << op_type << " op only support bool indices in tensorrt.";
+        return false;
+      }
+    }
     if (op_type == "temporal_shift") {
 #if !IS_TRT_VERSION_GE(8200)
       VLOG(3) << "temporal_shift is not supported when TensorRT < 8.2";
