@@ -2641,6 +2641,16 @@ struct SparseConvOptimPartern : public PatternBase {
   PATTERN_DECL_NODE(sp_conv3d_out);
 };
 
+struct PncDealArgsortPartern : public PatternBase {
+  PncDealArgsortPartern(PDPattern* pattern, const std::string& name_scope)
+      : PatternBase(pattern, name_scope, "pnc_deal_argsort_pattern") {}
+
+  void operator()();
+  PATTERN_DECL_NODE(argsort_X);
+  PATTERN_DECL_NODE(argsort_Op);
+  PATTERN_DECL_NODE(argsort_Out);
+};
+
 }  // namespace patterns
 
 // Link two ir::Nodes from each other.

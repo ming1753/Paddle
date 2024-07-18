@@ -5467,6 +5467,20 @@ void patterns::SparseConvOptimPartern::operator()() {
       .LinksTo({sp_conv3d_out});
 }
 
+void patterns::PncDealArgsortPartern::operator()() {
+  auto argsort_X = pattern->NewNode(argsort_X_repr())
+                         ->AsInput()
+                         ->assert_is_op_input("argsort", "X");
+  auto argsort_Op =
+      pattern->NewNode(argsort_Op_repr())->assert_is_op("argsort");
+  auto argsort_Out = pattern->NewNode(argsort_Out_repr())
+                           ->AsOutput()
+                           ->assert_is_op_output("argsort", "Out");
+
+  argsort_Op->LinksFrom({argsort_X})
+      .LinksTo({argsort_Out});
+}
+
 }  // namespace ir
 }  // namespace framework
 }  // namespace paddle

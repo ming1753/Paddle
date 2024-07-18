@@ -450,6 +450,19 @@ bool GenericPlugin::supportsFormatCombination(
     if (pos == 2)
       return in_out[0].type == in_out[pos].type &&
              in_out[0].format == in_out[pos].format;
+  } else if (op_desc_.Type() == "isnan_v2") {
+    // input x
+    if (pos == 0) {
+      return ((in_out[pos].type == nvinfer1::DataType::kFLOAT ||
+               (isFp16Supported() &&
+                in_out[pos].type == nvinfer1::DataType::kHALF)) &&
+              in_out[pos].format == nvinfer1::TensorFormat::kLINEAR);
+    }
+    // output out
+    if (pos == 1) {
+      return (in_out[pos].type == nvinfer1::DataType::kBOOL &&
+              in_out[pos].format == in_out[0].format);
+    }
   } else {
     return (in_out[pos].type == nvinfer1::DataType::kFLOAT ||
             (isFp16Supported() &&
@@ -470,6 +483,9 @@ nvinfer1::DataType GenericPlugin::getOutputDataType(
     if (index == 1) {
       return nvinfer1::DataType::kINT32;
     }
+  }
+  if (op_desc_.Type() == "isnan_v2") {
+    return nvinfer1::DataType::kBOOL;
   }
   return input_types[0];
 }

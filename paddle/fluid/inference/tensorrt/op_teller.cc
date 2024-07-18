@@ -37,7 +37,7 @@ namespace tensorrt {
 // Check if it is a dynamic shape. If it is a dynamic shape, return true;
 // otherwise, return false
 bool IsDynamicShapeOp(const framework::OpDesc& desc) {
-  VLOG(3) << "forbid_dynamic_op_enter_into_trt is open";
+  VLOG(4) << "forbid_dynamic_op_enter_into_trt is open";
   auto* block = desc.Block();
   auto inputs = desc.Inputs();
   for (auto iter : inputs) {
@@ -3324,6 +3324,36 @@ struct GenericPluginTeller : public Teller {
     if (op_type == "argsort") {
       if (!with_dynamic_shape) {
         VLOG(3) << "Ops(" << op_type << ") do not support static shape yet.";
+        return false;
+      }
+      auto x_var_name = desc.Input("X")[0];
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+      auto* x_var_desc = block->FindVar(x_var_name);
+      auto x_dtype = x_var_desc->GetDataType();
+      if (x_dtype == framework::proto::VarType::INT64 || x_dtype == framework::proto::VarType::INT32) {
+        VLOG(3) << "Ops(" << op_type << ") do not support input of INT64 or INT32.";
+        return false;
+      }
+    }
+    if (op_type == "scatter") {
+      auto x_var_name = desc.Input("X")[0];
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+      auto* x_var_desc = block->FindVar(x_var_name);
+      auto x_dtype = x_var_desc->GetDataType();
+      if (x_dtype == framework::proto::VarType::INT64 || x_dtype == framework::proto::VarType::INT32) {
+        VLOG(3) << "Ops(" << op_type << ") do not support input of INT64 or INT32.";
         return false;
       }
     }
