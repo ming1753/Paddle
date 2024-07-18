@@ -2798,6 +2798,21 @@ struct SimpleOpTypeSetTeller : public Teller {
       }
     }
 
+    if (op_type == "atan2") {
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the atan2 does not support "
+                   "static shape yet";
+        return false;
+      }
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+    }
+
     if (op_type == "index_put") {
       if (!with_dynamic_shape) {
         VLOG(3) << "the index_put does not support "
@@ -3081,6 +3096,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "grid_sampler",
       "cumsum",
       "unbind",
+      "atan2",
       "index_put",
       "assign",
       "flip",
@@ -3254,6 +3270,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "grid_sampler",
       "cumsum",
       "unbind",
+      "atan2",
       "index_put",
       "assign",
       "flip",
