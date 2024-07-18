@@ -2798,6 +2798,41 @@ struct SimpleOpTypeSetTeller : public Teller {
       }
     }
 
+    if (op_type == "argsort") {
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the argsort does not support "
+                   "static shape yet";
+        return false;
+      }
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+      if (!desc.HasAttr("descending") || !desc.HasAttr("axis")) {
+        VLOG(3) << op_type << " needs attributes : descending and axis.";
+      }
+
+      auto x_var_name = desc.Input("X")[0];
+      auto* x_var_desc = block->FindVarRecursive(x_var_name);
+      std::vector<int64_t> shape = x_var_desc->GetShape();
+      int axis = PADDLE_GET_CONST(int, desc.GetAttr("axis"));
+      std::cout << "x shape = ";
+      for (long unsigned int i = 0; i < shape.size(); ++i) {
+        std::cout << shape[i] << ",";
+      }
+      std::cout << std::endl;
+      if (axis < 0) {
+        axis += shape.size();
+      }
+      if (shape[axis] > 3840) {
+        VLOG(3) << op_type << " op shape[axis] = " << shape[axis] << " > 3840.";
+        return false;
+      }
+    }
+
     if (op_type == "atan2") {
       if (!with_dynamic_shape) {
         VLOG(3) << "the atan2 does not support "
@@ -3096,6 +3131,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "grid_sampler",
       "cumsum",
       "unbind",
+      "argsort",
       "atan2",
       "index_put",
       "assign",
@@ -3270,6 +3306,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "grid_sampler",
       "cumsum",
       "unbind",
+      "argsort",
       "atan2",
       "index_put",
       "assign",
@@ -3336,8 +3373,10 @@ struct GenericPluginTeller : public Teller {
       }
       auto* x_var_desc = block->FindVar(x_var_name);
       auto x_dtype = x_var_desc->GetDataType();
-      if (x_dtype == framework::proto::VarType::INT64 || x_dtype == framework::proto::VarType::INT32) {
-        VLOG(3) << "Ops(" << op_type << ") do not support input of INT64 or INT32.";
+      if (x_dtype == framework::proto::VarType::INT64 ||
+          x_dtype == framework::proto::VarType::INT32) {
+        VLOG(3) << "Ops(" << op_type
+                << ") do not support input of INT64 or INT32.";
         return false;
       }
     }
@@ -3352,8 +3391,10 @@ struct GenericPluginTeller : public Teller {
       }
       auto* x_var_desc = block->FindVar(x_var_name);
       auto x_dtype = x_var_desc->GetDataType();
-      if (x_dtype == framework::proto::VarType::INT64 || x_dtype == framework::proto::VarType::INT32) {
-        VLOG(3) << "Ops(" << op_type << ") do not support input of INT64 or INT32.";
+      if (x_dtype == framework::proto::VarType::INT64 ||
+          x_dtype == framework::proto::VarType::INT32) {
+        VLOG(3) << "Ops(" << op_type
+                << ") do not support input of INT64 or INT32.";
         return false;
       }
     }
