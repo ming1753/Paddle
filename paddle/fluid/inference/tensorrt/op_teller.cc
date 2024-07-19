@@ -2537,6 +2537,11 @@ struct SimpleOpTypeSetTeller : public Teller {
       if (desc.HasAttr("axes")) {
         auto axes =
             PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("axes"));
+        // std::string axes_str;
+        // for (auto axe : axes) {
+        //   axes_str += std::to_string(axe) + " ";
+        // }
+        // LOG(INFO) << "the set_value op's axes is " << axes_str;
         if (axes.size() != 1UL) {
           VLOG(3) << "the set_value op"
                   << "has more than one element in attribute axes, it can not "
@@ -2819,11 +2824,15 @@ struct SimpleOpTypeSetTeller : public Teller {
       auto* x_var_desc = block->FindVarRecursive(x_var_name);
       std::vector<int64_t> shape = x_var_desc->GetShape();
       int axis = PADDLE_GET_CONST(int, desc.GetAttr("axis"));
-      std::cout << "x shape = ";
-      for (long unsigned int i = 0; i < shape.size(); ++i) {
-        std::cout << shape[i] << ",";
+      // std::cout << "x shape = ";
+      // for (long unsigned int i = 0; i < shape.size(); ++i) {
+      //   std::cout << shape[i] << ",";
+      // }
+      // std::cout << std::endl;
+      if (shape.size() <= 1) {
+        VLOG(3) << op_type << " op shape size <= 1.";
+        return false;
       }
-      std::cout << std::endl;
       if (axis < 0) {
         axis += shape.size();
       }

@@ -41,13 +41,37 @@ class ArgsortOpConverter : public OpConverter {
     if (axis < 0) {
       axis += input_tensor_dims.nbDims;
     }
-    int k = 5;
-    auto* size_tensor = Add1DConstantLayer(k, "", true);
+    int k = PADDLE_GET_CONST(int, op_desc.GetAttr("trick_k"));
+    bool need_cast = PADDLE_GET_CONST(bool, op_desc.GetAttr("need_cast"));
+    if (need_cast) {
+      auto* cast_layer1 = TRT_ENGINE_ADD_LAYER(engine_, Identity, *input_tensor);
+      cast_layer1->setOutputType(0, nvinfer1::DataType::kFLOAT);
+      cast_layer1->getOutput(0)->setType(nvinfer1::DataType::kFLOAT);
+      auto* input = cast_layer1->getOutput(0);
+
+      auto* layer = TRT_ENGINE_ADD_LAYER(
+        engine_, TopK, *input, operation, k, 1 << axis);
+      auto* tmp_output = layer->getOutput(0);
+
+      auto* cast_layer2 = TRT_ENGINE_ADD_LAYER(engine_, Identity, *tmp_output);
+      cast_layer2->setOutputType(0, nvinfer1::DataType::kINT32);
+      cast_layer2->getOutput(0)->setType(nvinfer1::DataType::kINT32);
+
+      std::string layer_name = "argsort (Output: ";
+      cast_layer2->getOutput(0)->setName(output_name.c_str());
+      engine_->SetITensor(output_name, cast_layer2->getOutput(0));
+      layer_name += output_name + ", ";
+      
+      layer->getOutput(1)->setName(indices_name.c_str());
+      engine_->SetITensor(indices_name, layer->getOutput(1));
+      layer_name += indices_name;
+      layer->setName((layer_name + ")").c_str());
+    } else {
     auto* layer = TRT_ENGINE_ADD_LAYER(
-        engine_, TopK, *input_tensor, operation, 0, 1 << axis);
-    layer->setInput(1, *size_tensor);
+        engine_, TopK, *input_tensor, operation, k, 1 << axis);
     ReplenishLayerAndOutput(
         layer, "argsort", {output_name, indices_name}, test_mode);
+    }
   }
 };
 

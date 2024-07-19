@@ -72,6 +72,39 @@ void PncDealArgsortPass::ApplyImpl(ir::Graph* graph) const {
     }
     */
 
+    std::vector<int64_t> shape = argsort_X->Var()->GetShape();
+
+    int axis = PADDLE_GET_CONST(int, argsort_Op->Op()->GetAttr("axis"));
+
+    PADDLE_ENFORCE_EQ(axis,
+                      -1,
+                      phi::errors::InvalidArgument(
+                          "The axis should be equal to -1, "
+                          "but received %d.",
+                          axis));
+
+
+    if (!argsort_Op->Op()->HasAttr("stable")) {
+        argsort_Op->Op()->SetAttr("stable", false);
+    }
+    
+    // std::string tmp_shape = "";
+    // for (auto& i : shape) {
+    //     tmp_shape += std::to_string(i) + " ";
+    // }
+    // LOG(INFO) << tmp_shape;
+    // LOG(INFO) << "trick " << shape[shape.size()-1];
+
+    argsort_Op->Op()->SetAttr("trick_k", static_cast<int>(shape[shape.size()-1]));
+
+    auto input_dtype = argsort_X->Var()->GetDataType();
+
+    if (input_dtype == proto::VarType::INT64 || input_dtype == proto::VarType::INT32) {
+      argsort_Op->Op()->SetAttr("need_cast", true);
+    } else {
+      argsort_Op->Op()->SetAttr("need_cast", false);
+    }
+
     if (!argsort_Op->Op()->HasAttr("stable")) {
         argsort_Op->Op()->SetAttr("stable", false);
     }
