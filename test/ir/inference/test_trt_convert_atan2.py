@@ -29,10 +29,12 @@ class TrtConvertAtan2(TrtLayerAutoScanTest):
 
     def sample_program_configs(self):
         def generate_input1():
-            return np.random.random([1, 80, 1]).astype(np.float32)
+            x = 2 * np.random.random([1, 800, 1]).astype(np.float32) - 1
+            return x
 
         def generate_input2():
-            return np.random.random([1, 80, 1]).astype(np.float32)
+            x = 2 * np.random.random([1, 800, 1]).astype(np.float32) - 1
+            return x
 
         ops_config = [
             {
@@ -76,16 +78,16 @@ class TrtConvertAtan2(TrtLayerAutoScanTest):
 
         def generate_dynamic_shape(attrs):
             self.dynamic_shape.min_input_shape = {
-                "input_data1": [1, 80, 1],
-                "input_data2": [1, 80, 1],
+                "input_data1": [1, 800, 1],
+                "input_data2": [1, 800, 1],
             }
             self.dynamic_shape.max_input_shape = {
-                "input_data1": [2, 80, 1],
-                "input_data2": [2, 80, 1],
+                "input_data1": [2, 800, 1],
+                "input_data2": [2, 800, 1],
             }
             self.dynamic_shape.opt_input_shape = {
-                "input_data1": [1, 80, 1],
-                "input_data2": [1, 80, 1],
+                "input_data1": [1, 800, 1],
+                "input_data2": [1, 800, 1],
             }
 
         attrs = [
