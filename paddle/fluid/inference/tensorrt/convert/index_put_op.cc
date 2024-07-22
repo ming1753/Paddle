@@ -38,79 +38,97 @@ class IndexPutOpConverter : public OpConverter {
     auto* input_shape_tensor = Shape(input_tensor);
     nvinfer1::Dims input_dims = input_tensor->getDimensions();
     auto rank = input_dims.nbDims;
-
     nvinfer1::Dims indices_dims = indices_tensor->getDimensions();
-    nvinfer1::Dims value_dims = value_tensor->getDimensions();
+    nvinfer1::DataType indices_type = indices_tensor->getType();
+    if (indices_type == nvinfer1::DataType::kBOOL) {
+      // indices reshape
+      std::vector<nvinfer1::ITensor*> indices_shape_vec;
+      std::vector<nvinfer1::ITensor*> start_tensor_vec;
+      std::vector<nvinfer1::ITensor*> stride_tensor_vec;
+      for (int i = 0; i < rank; ++i) {
+        int indices_one = i < indices_dims.nbDims ? indices_dims.d[i] : 1;
+        indices_shape_vec.push_back(Add1DConstantLayer(indices_one));
+        start_tensor_vec.push_back(Add1DConstantLayer(0));
+        stride_tensor_vec.push_back(Add1DConstantLayer(1));
+      }
+      nvinfer1::ITensor* indices_tensor_temp =
+          Reshape(indices_tensor, Concat(indices_shape_vec));
+      auto* start_tensor = Concat(start_tensor_vec);
+      auto* stride_tensor = Concat(stride_tensor_vec);
 
-    // indices reshape
-    std::vector<nvinfer1::ITensor*> indices_shape_vec;
-    for (int i = 0; i < rank; ++i) {
-      int indices_one = i < indices_dims.nbDims ? indices_dims.d[i] : 1;
-      indices_shape_vec.push_back(Add1DConstantLayer(indices_one));
+      // slice
+      nvinfer1::Dims stride;
+      stride.nbDims = rank;
+      for (int i = 0; i < stride.nbDims; ++i) {
+        stride.d[i] = 1;
+      }
+      auto indices_slice_layer = TRT_ENGINE_ADD_LAYER(
+          engine_,
+          Slice,
+          *Cast(indices_tensor_temp, nvinfer1::DataType::kFLOAT),
+          stride,
+          stride,
+          stride);
+      indices_slice_layer->setInput(1, *start_tensor);
+      indices_slice_layer->setInput(2, *input_shape_tensor);
+      indices_slice_layer->setInput(3, *stride_tensor);
+#if IS_TRT_VERSION_GE(8500)
+      indices_slice_layer->setMode(nvinfer1::SampleMode::kCLAMP);
+#else
+      indices_slice_layer->setMode(nvinfer1::SliceMode::kCLAMP);
+#endif
+      auto* indices_tensor_new =
+          Cast(indices_slice_layer->getOutput(0), nvinfer1::DataType::kBOOL);
+      // nonzero
+      auto* nonzero_layer =
+          TRT_ENGINE_ADD_LAYER(engine_, NonZero, *indices_tensor_new);
+      indices_tensor = nonzero_layer->getOutput(0);
     }
-    nvinfer1::ITensor* indices_shape_tensor_new = Concat(indices_shape_vec);
-    nvinfer1::ITensor* indices_tensor_temp =
-        Reshape(indices_tensor, indices_shape_tensor_new);
+    nvinfer1::Permutation permutation{1, 0};
+    auto* trans_layer = TRT_ENGINE_ADD_LAYER(engine_, Shuffle, *indices_tensor);
+    trans_layer->setFirstTranspose(permutation);
+    nvinfer1::ITensor* new_indices_tensor = trans_layer->getOutput(0);
+    auto* indices_new_shape_tensor = Shape(new_indices_tensor);
+    auto* indices_count_tensor =
+        GetEleTensorOfShape(indices_new_shape_tensor, 0);
+
     // value reshape
-    std::vector<nvinfer1::ITensor*> value_shape_vec;
-    for (int i = 0; i < rank; ++i) {
-      int shape_one = i < value_dims.nbDims ? value_dims.d[i] : 1;
-      value_shape_vec.push_back(Add1DConstantLayer(shape_one));
+    nvinfer1::Dims value_dims = value_tensor->getDimensions();
+    int numel = 1;
+    for (int i = 0; i < value_dims.nbDims; ++i) {
+      numel *= value_dims.d[i];
     }
-    nvinfer1::ITensor* value_shape_tensor_new = Concat(value_shape_vec);
-    nvinfer1::ITensor* value_tensor_temp =
-        Reshape(value_tensor, value_shape_tensor_new);
-
-    // slice
-    nvinfer1::Dims stride;
-    stride.nbDims = input_dims.nbDims;
-    for (int i = 0; i < stride.nbDims; ++i) {
-      stride.d[i] = 1;
-    }
-    std::vector<nvinfer1::ITensor*> start_tensor_vec;
-    std::vector<nvinfer1::ITensor*> stride_tensor_vec;
-    for (int i = 0; i < rank; ++i) {
-      start_tensor_vec.push_back(Add1DConstantLayer(0));
-      stride_tensor_vec.push_back(Add1DConstantLayer(1));
-    }
-    auto* start_tensor = Concat(start_tensor_vec);
-    auto* stride_tensor = Concat(stride_tensor_vec);
-
-    auto indices_slice_layer = TRT_ENGINE_ADD_LAYER(
-        engine_,
-        Slice,
-        *Cast(indices_tensor_temp, nvinfer1::DataType::kFLOAT),
-        stride,
-        stride,
-        stride);
-    indices_slice_layer->setInput(1, *start_tensor);
-    indices_slice_layer->setInput(2, *input_shape_tensor);
-    indices_slice_layer->setInput(3, *stride_tensor);
+    nvinfer1::ITensor* new_value_tensor{nullptr};
+    if (numel == 1) {
+      nvinfer1::Dims value_stride;
+      value_stride.nbDims = 1;
+      value_stride.d[0] = 1;
+      auto value_slice_layer = TRT_ENGINE_ADD_LAYER(engine_,
+                                                    Slice,
+                                                    *value_tensor,
+                                                    value_stride,
+                                                    value_stride,
+                                                    value_stride);
+      value_slice_layer->setInput(1, *Add1DConstantLayer(0));
+      value_slice_layer->setInput(2, *indices_count_tensor);
+      value_slice_layer->setInput(3, *Add1DConstantLayer(1));
 #if IS_TRT_VERSION_GE(8500)
-    indices_slice_layer->setMode(nvinfer1::SampleMode::kCLAMP);
+      value_slice_layer->setMode(nvinfer1::SampleMode::kCLAMP);
 #else
-    indices_slice_layer->setMode(nvinfer1::SliceMode::kCLAMP);
+      value_slice_layer->setMode(nvinfer1::SliceMode::kCLAMP);
 #endif
+      new_value_tensor = value_slice_layer->getOutput(0);
+    } else {
+      new_value_tensor = Reshape(value_tensor, indices_count_tensor);
+    }
 
-    auto* indices_tensor_new =
-        Cast(indices_slice_layer->getOutput(0), nvinfer1::DataType::kBOOL);
-
-    // value
-    auto value_slice_layer = TRT_ENGINE_ADD_LAYER(
-        engine_, Slice, *value_tensor_temp, stride, stride, stride);
-    value_slice_layer->setInput(1, *start_tensor);
-    value_slice_layer->setInput(2, *input_shape_tensor);
-    value_slice_layer->setInput(3, *stride_tensor);
-#if IS_TRT_VERSION_GE(8500)
-    value_slice_layer->setMode(nvinfer1::SampleMode::kCLAMP);
-#else
-    value_slice_layer->setMode(nvinfer1::SliceMode::kCLAMP);
-#endif
-    auto* value_tensor_new = value_slice_layer->getOutput(0);
-
-    auto layer = TRT_ENGINE_ADD_LAYER(
-        engine_, Select, *indices_tensor_new, *value_tensor_new, *input_tensor);
-
+    auto* layer = TRT_ENGINE_ADD_LAYER(engine_,
+                                       Scatter,
+                                       *input_tensor,
+                                       *new_indices_tensor,
+                                       *new_value_tensor,
+                                       nvinfer1::ScatterMode::kND);
+    layer->setAxis(0);
     ReplenishLayerAndOutput(layer, "index_put", {output_name}, test_mode);
   }
 };
