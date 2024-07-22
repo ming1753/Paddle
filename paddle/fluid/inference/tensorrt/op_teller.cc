@@ -2889,6 +2889,26 @@ struct SimpleOpTypeSetTeller : public Teller {
       }
     }
 
+    if (op_type == "scatter") {
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the scatter does not support "
+                   "static shape yet";
+        return false;
+      }
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+      bool overwrite = PADDLE_GET_CONST(bool, desc.GetAttr("overwrite"));
+      if (!overwrite) {
+        VLOG(3) << op_type << " op only support overwrite = True.";
+        return false;
+      }
+    }
+
     if (op_type == "p_norm") {
       if (!with_dynamic_shape) {
         VLOG(3) << "the p_norm does not support "
@@ -3182,6 +3202,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "atan2",
       "index_put",
       "scatter_nd_add",
+      "scatter",
       "p_norm",
       "assign",
       "flip",
@@ -3359,6 +3380,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "atan2",
       "index_put",
       "scatter_nd_add",
+      "scatter",
       "p_norm",
       "assign",
       "flip",
