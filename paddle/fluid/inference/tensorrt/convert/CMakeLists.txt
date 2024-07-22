@@ -118,6 +118,8 @@ list(
   quantize_linear_op.cc
   dequantize_linear_op.cc
   index_put_op.cc
+  scatter_nd_add_op.cc
+  p_norm_op.cc
   share_data_op.cc)
 
 if(${TENSORRT_MAJOR_VERSION} GREATER_EQUAL 7)
