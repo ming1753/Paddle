@@ -2824,11 +2824,6 @@ struct SimpleOpTypeSetTeller : public Teller {
       auto* x_var_desc = block->FindVarRecursive(x_var_name);
       std::vector<int64_t> shape = x_var_desc->GetShape();
       int axis = PADDLE_GET_CONST(int, desc.GetAttr("axis"));
-      // std::cout << "x shape = ";
-      // for (long unsigned int i = 0; i < shape.size(); ++i) {
-      //   std::cout << shape[i] << ",";
-      // }
-      // std::cout << std::endl;
       if (shape.size() <= 1) {
         VLOG(3) << op_type << " op shape size <= 1.";
         return false;
@@ -2875,6 +2870,49 @@ struct SimpleOpTypeSetTeller : public Teller {
       auto dtype = indices_var_desc->GetDataType();
       if (dtype != framework::proto::VarType::BOOL) {
         VLOG(3) << op_type << " op only support bool indices in tensorrt.";
+        return false;
+      }
+    }
+
+    if (op_type == "scatter_nd_add") {
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the scatter_nd_add does not support "
+                   "static shape yet";
+        return false;
+      }
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+    }
+
+    if (op_type == "p_norm") {
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the p_norm does not support "
+                   "static shape yet";
+        return false;
+      }
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+      if (!(desc.HasAttr("asvector") && desc.HasAttr("axis") &&
+            desc.HasAttr("porder") && desc.HasAttr("keepdim"))) {
+        VLOG(3) << op_type << " op need attrs asvector, porder, axis, keepdim.";
+        return false;
+      }
+      bool asvector = PADDLE_GET_CONST(bool, desc.GetAttr("asvector"));
+      int axis = PADDLE_GET_CONST(int, desc.GetAttr("axis"));
+      float porder = PADDLE_GET_CONST(float, desc.GetAttr("porder"));
+      if (asvector || porder != 2.0f || axis != -1) {
+        VLOG(3) << op_type
+                << " op only support asvector=False, porder=2.0, axis = -1.";
         return false;
       }
     }
@@ -3143,6 +3181,8 @@ struct SimpleOpTypeSetTeller : public Teller {
       "argsort",
       "atan2",
       "index_put",
+      "scatter_nd_add",
+      "p_norm",
       "assign",
       "flip",
       "quantize_linear",
@@ -3318,6 +3358,8 @@ struct SimpleOpTypeSetTeller : public Teller {
       "argsort",
       "atan2",
       "index_put",
+      "scatter_nd_add",
+      "p_norm",
       "assign",
       "flip",
       "quantize_linear",
