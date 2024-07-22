@@ -38,13 +38,16 @@ class PNormOpConverter : public OpConverter {
     }
     uint32_t axisMask = 1 << axis;
     auto* prod_tensor = Prod(input_tensor, input_tensor);
-    auto* layer = TRT_ENGINE_ADD_LAYER(engine_,
-                                       Reduce,
-                                       *prod_tensor,
-                                       nvinfer1::ReduceOperation::kPROD,
-                                       axisMask,
-                                       keepdim);
-    ReplenishLayerAndOutput(layer, "p_norm", {output_name}, test_mode);
+    auto* prod_layer = TRT_ENGINE_ADD_LAYER(engine_,
+                                            Reduce,
+                                            *prod_tensor,
+                                            nvinfer1::ReduceOperation::kSUM,
+                                            axisMask,
+                                            keepdim);
+    auto* reduce_tensor = prod_layer->getOutput(0);
+    auto* sqrt_layer = TRT_ENGINE_ADD_LAYER(
+        engine_, Unary, *reduce_tensor, nvinfer1::UnaryOperation::kSQRT);
+    ReplenishLayerAndOutput(sqrt_layer, "p_norm", {output_name}, test_mode);
   }
 };
 
