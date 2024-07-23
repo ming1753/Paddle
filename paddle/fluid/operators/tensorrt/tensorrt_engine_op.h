@@ -790,6 +790,14 @@ class TensorRTEngineOp : public framework::OperatorBase {
           phi::errors::NotFound(
               "Output variable %s is not found in TensorRT subgraph.", y));
       auto *fluid_t = fluid_v->GetMutable<phi::DenseTensor>();
+      
+      // std::string shape_str;
+      // for (auto &d : ddim) {
+      //   shape_str += std::to_string(d) + ", ";
+      //   if (d == -1) d = 405;
+      // }
+      // LOG(INFO) << shape_str;
+
       fluid_t->Resize(common::make_ddim(ddim));
 
       PADDLE_ENFORCE_LT(bind_index,
