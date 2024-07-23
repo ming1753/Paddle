@@ -36,7 +36,10 @@ class ReduceOpConverter : public OpConverter {
     auto* x = engine_->GetITensor(op_desc.Input("X").front());
     nvinfer1::Dims input_shape = x->getDimensions();
     int input_dims = input_shape.nbDims;
-
+    nvinfer1::DataType x_type = x->getType();
+    if (x_type == nvinfer1::DataType::kBOOL) {
+      x = Cast(x, nvinfer1::DataType::kINT32);
+    }
     bool keep_dim = PADDLE_GET_CONST(bool, op_desc.GetAttr("keep_dim"));
 
     std::vector<int32_t> dim;
