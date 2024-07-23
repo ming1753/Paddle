@@ -322,7 +322,9 @@ std::string TensorRtSubgraphPass::CreateTensorRTOp(
   LOG(INFO) << "---  detect a sub-graph with " << subgraph.size() << " nodes";
   for (auto node : subgraph) {
     if (node->NodeType() == Node::Type::kOperation) {
-      VLOG(5) << "trt subgraph has op: " << (node->Op()->Type());
+      VLOG(1) << "trt subgraph has op: " 
+                << (node->Op()->Type()) << ", " 
+                << node->outputs[0]->Name();
     }
   }
 

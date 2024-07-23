@@ -122,7 +122,8 @@ list(
   scatter_op.cc
   p_norm_op.cc
   isnan_v2_op.cc
-  share_data_op.cc)
+  share_data_op.cc
+  where_index_op.cc)
 
 if(${TENSORRT_MAJOR_VERSION} GREATER_EQUAL 7)
   list(APPEND CONVERT_FILES emb_eltwise_layernorm.cc

@@ -32,51 +32,57 @@ class StackOpConverter : public OpConverter {
     framework::OpDesc op_desc(op, nullptr);
     auto input = op_desc.Input("X");
     int input_num = input.size();
-    std::vector<nvinfer1::ITensor*> inputs;
-    auto output_name = op_desc.Output("Y").front();
+    if (input_num > 1) {
+      std::vector<nvinfer1::ITensor*> inputs;
+      auto output_name = op_desc.Output("Y").front();
 
-    for (int i = 0; i < input_num; ++i) {
-      inputs.push_back(engine_->GetITensor(input[i]));
-      if (op_desc.HasAttr("out_threshold")) {
-        float out_scale =
-            PADDLE_GET_CONST(float, op_desc.GetAttr("out_threshold"));
-        engine_->SetTensorDynamicRange(inputs[i], out_scale);
+      for (int i = 0; i < input_num; ++i) {
+        inputs.push_back(engine_->GetITensor(input[i]));
+        if (op_desc.HasAttr("out_threshold")) {
+          float out_scale =
+              PADDLE_GET_CONST(float, op_desc.GetAttr("out_threshold"));
+          engine_->SetTensorDynamicRange(inputs[i], out_scale);
+        }
       }
-    }
 
-    int axis = PADDLE_GET_CONST(int, op_desc.GetAttr("axis"));
-    int output_rank = inputs[0]->getDimensions().nbDims + 1;
-    if (axis < 0) {
-      axis = axis + output_rank;
-    }
-    // Now, axis is relative to output_rank.
-
-    auto* shape_tensor = Shape(inputs[0]);
-    std::vector<nvinfer1::ITensor*> shape_tensor_vec;
-    for (int i = 0; i < output_rank; i++) {
-      if (i < axis) {
-        shape_tensor_vec.push_back(GetEleTensorOfShape(shape_tensor, i));
-      } else if (i > axis) {
-        shape_tensor_vec.push_back(GetEleTensorOfShape(shape_tensor, i - 1));
-      } else {
-        shape_tensor_vec.push_back(Add1DConstantLayer(1));
+      int axis = PADDLE_GET_CONST(int, op_desc.GetAttr("axis"));
+      int output_rank = inputs[0]->getDimensions().nbDims + 1;
+      if (axis < 0) {
+        axis = axis + output_rank;
       }
+      // Now, axis is relative to output_rank.
+
+      auto* shape_tensor = Shape(inputs[0]);
+      std::vector<nvinfer1::ITensor*> shape_tensor_vec;
+      for (int i = 0; i < output_rank; i++) {
+        if (i < axis) {
+          shape_tensor_vec.push_back(GetEleTensorOfShape(shape_tensor, i));
+        } else if (i > axis) {
+          shape_tensor_vec.push_back(GetEleTensorOfShape(shape_tensor, i - 1));
+        } else {
+          shape_tensor_vec.push_back(Add1DConstantLayer(1));
+        }
+      }
+      auto* after_shape_tensor = Concat(shape_tensor_vec);
+
+      for (int i = 0; i < input_num; ++i) {
+        inputs[i] = Reshape(inputs[i],
+                            after_shape_tensor,
+                            ("stack: reshape: (Output( " + std::to_string(i) +
+                            " )" + output_name + ")")
+                                .c_str());
+      }
+
+      auto* layer = TRT_ENGINE_ADD_LAYER(
+          engine_, Concatenation, inputs.data(), inputs.size());
+      layer->setAxis(axis);
+      ReplenishLayerAndOutput(layer, "stack", {output_name}, test_mode);
+    } else {
+      auto* input_x = engine_->GetITensor(op_desc.Input("X")[0]);
+      auto* layer = TRT_ENGINE_ADD_LAYER(engine_, Identity, *input_x);
+      auto output_name = op_desc.Output("Y")[0];
+      ReplenishLayerAndOutput(layer, "stack", {output_name}, test_mode);
     }
-    auto* after_shape_tensor = Concat(shape_tensor_vec);
-
-    for (int i = 0; i < input_num; ++i) {
-      inputs[i] = Reshape(inputs[i],
-                          after_shape_tensor,
-                          ("stack: reshape: (Output( " + std::to_string(i) +
-                           " )" + output_name + ")")
-                              .c_str());
-    }
-
-    auto* layer = TRT_ENGINE_ADD_LAYER(
-        engine_, Concatenation, inputs.data(), inputs.size());
-    layer->setAxis(axis);
-
-    ReplenishLayerAndOutput(layer, "stack", {output_name}, test_mode);
   }
 };
 

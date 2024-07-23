@@ -646,7 +646,7 @@ struct SimpleOpTypeSetTeller : public Teller {
     }
 
     if (op_type == "gather_nd") {
-      if (!with_dynamic_shape) return false;
+      // if (!with_dynamic_shape) return false;
 
       auto* block = desc.Block();
       if (block == nullptr) {
@@ -2512,21 +2512,24 @@ struct SimpleOpTypeSetTeller : public Teller {
       return false;
 #endif
       auto inputs = desc.Inputs();
-      if (inputs.find("StartsTensorList") != inputs.end()) {
-        if (!desc.Input("StartsTensorList").empty()) {
-          return false;
-        }
-      }
-      if (inputs.find("EndsTensorList") != inputs.end()) {
-        if (!desc.Input("EndsTensorList").empty()) {
-          return false;
-        }
-      }
-      if (inputs.find("StepsTensorList") != inputs.end()) {
-        if (!desc.Input("StepsTensorList").empty()) {
-          return false;
-        }
-      }
+      // if (inputs.find("StartsTensorList") != inputs.end()) {
+      //   if (!desc.Input("StartsTensorList").empty()) {
+      //     LOG(INFO) << "the set_value op's StartsTensorList is not empty";
+      //     return false;
+      //   }
+      // }
+      // if (inputs.find("EndsTensorList") != inputs.end()) {
+      //   if (!desc.Input("EndsTensorList").empty()) {
+      //     LOG(INFO) << "the set_value op's EndsTensorList is not empty";
+      //     return false;
+      //   }
+      // }
+      // if (inputs.find("StepsTensorList") != inputs.end()) {
+      //   if (!desc.Input("StepsTensorList").empty()) {
+      //     LOG(INFO) << "the set_value op's StepsTensorList is not empty";
+      //     return false;
+      //   }
+      // }
       if (!(desc.HasAttr("axes") && desc.HasAttr("starts") &&
             desc.HasAttr("steps"))) {
         VLOG(3) << "the " << op_type
@@ -2537,13 +2540,13 @@ struct SimpleOpTypeSetTeller : public Teller {
       if (desc.HasAttr("axes")) {
         auto axes =
             PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("axes"));
-        // std::string axes_str;
-        // for (auto axe : axes) {
-        //   axes_str += std::to_string(axe) + " ";
-        // }
-        // LOG(INFO) << "the set_value op's axes is " << axes_str;
+        std::string axes_str;
+        for (auto axe : axes) {
+          axes_str += std::to_string(axe) + " ";
+        }
+        LOG(INFO) << "the set_value op's axes is " << axes_str;
         if (axes.size() != 1UL) {
-          VLOG(3) << "the set_value op"
+          LOG(INFO) << "the set_value op "
                   << "has more than one element in attribute axes, it can not "
                      "enter into trt.";
           return false;
@@ -2799,6 +2802,14 @@ struct SimpleOpTypeSetTeller : public Teller {
         VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
                    "Developers need to check whether block_desc is passed in "
                    "the pass.";
+        return false;
+      }
+    }
+
+    if (op_type == "where_index") {
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the where_index does not support "
+                   "static shape yet";
         return false;
       }
     }
@@ -3214,6 +3225,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "cumsum",
       "unbind",
       "argsort",
+      "where_index",
       "atan2",
       "index_put",
       "scatter_nd_add",
@@ -3393,6 +3405,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "cumsum",
       "unbind",
       "argsort",
+      "where_index",
       "atan2",
       "index_put",
       "scatter_nd_add",
