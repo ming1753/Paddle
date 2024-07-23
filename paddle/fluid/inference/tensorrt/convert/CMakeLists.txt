@@ -121,6 +121,7 @@ list(
   scatter_nd_add_op.cc
   scatter_op.cc
   p_norm_op.cc
+  isnan_v2_op.cc
   share_data_op.cc)
 
 if(${TENSORRT_MAJOR_VERSION} GREATER_EQUAL 7)

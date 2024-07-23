@@ -2937,6 +2937,21 @@ struct SimpleOpTypeSetTeller : public Teller {
       }
     }
 
+    if (op_type == "isnan_v2") {
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the isnan_v2 does not support "
+                   "static shape yet";
+        return false;
+      }
+      auto* block = desc.Block();
+      if (block == nullptr) {
+        VLOG(3) << "The block desc is nullptr, we can't continue to analyze. "
+                   "Developers need to check whether block_desc is passed in "
+                   "the pass.";
+        return false;
+      }
+    }
+
     if (op_type == "temporal_shift") {
 #if !IS_TRT_VERSION_GE(8200)
       VLOG(3) << "temporal_shift is not supported when TensorRT < 8.2";
@@ -3204,6 +3219,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "scatter_nd_add",
       "scatter",
       "p_norm",
+      "isnan_v2",
       "assign",
       "flip",
       "quantize_linear",
@@ -3382,6 +3398,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "scatter_nd_add",
       "scatter",
       "p_norm",
+      "isnan_v2",
       "assign",
       "flip",
       "quantize_linear",
