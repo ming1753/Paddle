@@ -119,6 +119,7 @@ list(
   dequantize_linear_op.cc
   index_put_op.cc
   scatter_nd_add_op.cc
+  scatter_op.cc
   p_norm_op.cc
   share_data_op.cc)
 
