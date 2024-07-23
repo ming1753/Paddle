@@ -2346,10 +2346,12 @@ struct SimpleOpTypeSetTeller : public Teller {
         if (dtype != framework::proto::VarType::INT32 &&
             dtype != framework::proto::VarType::INT64 &&
             dtype != framework::proto::VarType::FP32 &&
-            dtype != framework::proto::VarType::FP64) {
+            dtype != framework::proto::VarType::FP64 &&
+            !(op_type == "reduce_sum" &&
+              dtype != framework::proto::VarType::BOOL)) {
           VLOG(3) << "reduce op input data type must be int32 or int64 or "
                      "float32 or "
-                     "float64";
+                     "float64 or bool with reduce sum op";
           return false;
         }
 #else
@@ -2546,9 +2548,10 @@ struct SimpleOpTypeSetTeller : public Teller {
         }
         LOG(INFO) << "the set_value op's axes is " << axes_str;
         if (axes.size() != 1UL) {
-          LOG(INFO) << "the set_value op "
-                  << "has more than one element in attribute axes, it can not "
-                     "enter into trt.";
+          LOG(INFO)
+              << "the set_value op "
+              << "has more than one element in attribute axes, it can not "
+                 "enter into trt.";
           return false;
         }
       }
