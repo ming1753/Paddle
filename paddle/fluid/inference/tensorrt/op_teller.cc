@@ -2348,7 +2348,7 @@ struct SimpleOpTypeSetTeller : public Teller {
             dtype != framework::proto::VarType::FP32 &&
             dtype != framework::proto::VarType::FP64 &&
             !(op_type == "reduce_sum" &&
-              dtype != framework::proto::VarType::BOOL)) {
+              dtype == framework::proto::VarType::BOOL)) {
           VLOG(3) << "reduce op input data type must be int32 or int64 or "
                      "float32 or "
                      "float64 or bool with reduce sum op";
@@ -2514,24 +2514,24 @@ struct SimpleOpTypeSetTeller : public Teller {
       return false;
 #endif
       auto inputs = desc.Inputs();
-      // if (inputs.find("StartsTensorList") != inputs.end()) {
-      //   if (!desc.Input("StartsTensorList").empty()) {
-      //     LOG(INFO) << "the set_value op's StartsTensorList is not empty";
-      //     return false;
-      //   }
-      // }
-      // if (inputs.find("EndsTensorList") != inputs.end()) {
-      //   if (!desc.Input("EndsTensorList").empty()) {
-      //     LOG(INFO) << "the set_value op's EndsTensorList is not empty";
-      //     return false;
-      //   }
-      // }
-      // if (inputs.find("StepsTensorList") != inputs.end()) {
-      //   if (!desc.Input("StepsTensorList").empty()) {
-      //     LOG(INFO) << "the set_value op's StepsTensorList is not empty";
-      //     return false;
-      //   }
-      // }
+      if (inputs.find("StartsTensorList") != inputs.end()) {
+        if (!desc.Input("StartsTensorList").empty()) {
+          VLOG(3) << "the set_value op's StartsTensorList is not empty";
+          return false;
+        }
+      }
+      if (inputs.find("EndsTensorList") != inputs.end()) {
+        if (!desc.Input("EndsTensorList").empty()) {
+          VLOG(3) << "the set_value op's EndsTensorList is not empty";
+          return false;
+        }
+      }
+      if (inputs.find("StepsTensorList") != inputs.end()) {
+        if (!desc.Input("StepsTensorList").empty()) {
+          VLOG(3) << "the set_value op's StepsTensorList is not empty";
+          return false;
+        }
+      }
       if (!(desc.HasAttr("axes") && desc.HasAttr("starts") &&
             desc.HasAttr("steps"))) {
         VLOG(3) << "the " << op_type
@@ -2542,13 +2542,26 @@ struct SimpleOpTypeSetTeller : public Teller {
       if (desc.HasAttr("axes")) {
         auto axes =
             PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("axes"));
-        std::string axes_str;
-        for (auto axe : axes) {
-          axes_str += std::to_string(axe) + " ";
-        }
-        LOG(INFO) << "the set_value op's axes is " << axes_str;
-        if (axes.size() != 1UL) {
-          LOG(INFO)
+        if (axes.empty()) {
+          // std::string axes_str;
+          // axes_str = "";
+          // for (auto axe : PADDLE_GET_CONST(phi::DenseTensor, desc.GetAttr("starts"))) {
+          //   axes_str += std::to_string(axe) + " ";
+          // }
+          // LOG(INFO) << "the set_value op's starts is " << axes_str;
+          // axes_str = "";
+          // for (auto axe : PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("steps"))) {
+          //   axes_str += std::to_string(axe) + " ";
+          // }
+          // LOG(INFO) << "the set_value op's steps is " << axes_str;
+          // for (auto axe : PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("ends"))) {
+          //   axes_str += std::to_string(axe) + " ";
+          // }
+          // LOG(INFO) << "the set_value op's ends is " << axes_str;
+          VLOG(3) << "the set_value op has no elements in attribute axes, it can not enter into trt.";
+          return false;
+        } else if (axes.size() > 1UL) {
+          VLOG(3)
               << "the set_value op "
               << "has more than one element in attribute axes, it can not "
                  "enter into trt.";
