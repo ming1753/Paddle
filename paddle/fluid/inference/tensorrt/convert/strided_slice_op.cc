@@ -83,7 +83,9 @@ class StridedSliceOpConverter : public OpConverter {
       bool has_neg_indices = false;
       for (size_t i = 0; i < axes.size(); i++) {
         int trt_axis = axes[i];
-        trt_start_dims.d[trt_axis] = starts[i];
+        trt_start_dims.d[trt_axis] = starts[i] >= input_dims.d[trt_axis]
+                                         ? input_dims.d[trt_axis] - 1
+                                         : starts[i];
         trt_end_dims.d[trt_axis] = ends[i];
         trt_step_dims.d[axes[i]] = strides[i];
         if (starts[i] < 0 || ends[i] < 0) has_neg_indices = true;
@@ -101,12 +103,13 @@ class StridedSliceOpConverter : public OpConverter {
 
       for (size_t i = 0; i < axes.size(); i++) {
         int trt_axis = axes[i];
-        if (ends[i] >= 0) {
-          end_vec_tensor[trt_axis] = Add1DConstantLayer(ends[i]);
-        } else {
-          end_vec_tensor[trt_axis] =
-              Sum(end_vec_tensor[trt_axis], Add1DConstantLayer(ends[i]));
-        }
+        end_vec_tensor[trt_axis] = Add1DConstantLayer(ends[i]);
+        // if (ends[i] >= 0) {
+        //   end_vec_tensor[trt_axis] = Add1DConstantLayer(ends[i]);
+        // } else {
+        //   end_vec_tensor[trt_axis] =
+        //       Sum(end_vec_tensor[trt_axis], Add1DConstantLayer(ends[i]));
+        // }
       }
 
       auto* size_tensor =
