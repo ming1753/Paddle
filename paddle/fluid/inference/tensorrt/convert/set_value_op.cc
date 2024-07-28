@@ -50,6 +50,16 @@ class SetValueConverter : public OpConverter {
                   bool test_mode) override {
     VLOG(3) << "convert a set value op to tensorrt";
     framework::OpDesc op_desc(op, nullptr);
+    auto axes =
+        PADDLE_GET_CONST(std::vector<int64_t>, op_desc.GetAttr("axes"));
+    auto output_name = op_desc.Output("Out")[0];
+    LOG(INFO) << "output name: " << output_name;
+    int dtype = 5;
+    if (axes.empty()) {
+      auto* value = engine_->GetITensor(op_desc.Input("ValueTensor")[0]);
+      auto* layer = TRT_ENGINE_ADD_LAYER(engine_, Identity, *value);
+      ReplenishLayerAndOutput(layer, "set_value", {output_name}, test_mode);
+    } else {
     int64_t axes = 0;
     int64_t starts = 0;
     int64_t steps = 1;
@@ -92,14 +102,15 @@ class SetValueConverter : public OpConverter {
         op_desc.Input("ValueTensor").size() > 0) {
       updates = engine_->GetITensor(op_desc.Input("ValueTensor")[0]);
     } else {
-      int dtype = PADDLE_GET_CONST(int, op_desc.GetAttr("dtype"));
-      PADDLE_ENFORCE_EQ(dtype,
-                        5,
-                        platform::errors::InvalidArgument(
-                            "set_value OP dtype must be float"));
-      float value = PADDLE_GET_CONST(std::vector<paddle::experimental::Scalar>,
-                                     op_desc.GetAttr("values"))[0]
-                        .to<float>();
+      dtype = PADDLE_GET_CONST(int, op_desc.GetAttr("dtype"));
+      float value;
+      if (dtype == 0) {
+        value = static_cast<float>(PADDLE_GET_CONST(std::vector<paddle::experimental::Scalar>,
+                                op_desc.GetAttr("values"))[0].to<bool>());
+      } else {
+        value = PADDLE_GET_CONST(std::vector<paddle::experimental::Scalar>,
+                                op_desc.GetAttr("values"))[0].to<float>();
+      }
       VLOG(3) << "the attribute value is: " << value;
 
       nvinfer1::ITensor* input_shape_tensor = Shape(inputs);
@@ -240,6 +251,10 @@ class SetValueConverter : public OpConverter {
       auto one_tensor = AddConstantLayer(tmp_1.data(), shape_1);
       indice_tensor = Sum(indice_tensor, one_tensor);
 
+      if (dtype == 0) {
+        inputs = Cast(inputs, nvinfer1::DataType::kFLOAT);
+      }
+
       auto* layer = TRT_ENGINE_ADD_LAYER(engine_,
                                          Scatter,
                                          *inputs,
@@ -249,10 +264,18 @@ class SetValueConverter : public OpConverter {
 
       layer->setAxis(axes);
 
-      ReplenishLayerAndOutput(layer, "set_value", {output_name}, test_mode);
+      if (dtype == 0) {
+        auto* cast_layer = TRT_ENGINE_ADD_LAYER(engine_, Identity, *layer->getOutput(0));
+        cast_layer->setOutputType(0, nvinfer1::DataType::kBOOL);
+        cast_layer->getOutput(0)->setType(nvinfer1::DataType::kBOOL);
+        ReplenishLayerAndOutput(cast_layer, "set_value", {output_name}, test_mode);
+      } else {
+        ReplenishLayerAndOutput(layer, "set_value", {output_name}, test_mode);
+      }
     } else {
       PADDLE_THROW(platform::errors::Fatal(
           "static shape mode not supported in set value yet"));
+    }
     }
   }
 };

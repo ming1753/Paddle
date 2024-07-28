@@ -2542,25 +2542,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       if (desc.HasAttr("axes")) {
         auto axes =
             PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("axes"));
-        if (axes.empty()) {
-          // std::string axes_str;
-          // axes_str = "";
-          // for (auto axe : PADDLE_GET_CONST(phi::DenseTensor, desc.GetAttr("starts"))) {
-          //   axes_str += std::to_string(axe) + " ";
-          // }
-          // LOG(INFO) << "the set_value op's starts is " << axes_str;
-          // axes_str = "";
-          // for (auto axe : PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("steps"))) {
-          //   axes_str += std::to_string(axe) + " ";
-          // }
-          // LOG(INFO) << "the set_value op's steps is " << axes_str;
-          // for (auto axe : PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("ends"))) {
-          //   axes_str += std::to_string(axe) + " ";
-          // }
-          // LOG(INFO) << "the set_value op's ends is " << axes_str;
-          VLOG(3) << "the set_value op has no elements in attribute axes, it can not enter into trt.";
-          return false;
-        } else if (axes.size() > 1UL) {
+      if (axes.size() > 1UL) {
           VLOG(3)
               << "the set_value op "
               << "has more than one element in attribute axes, it can not "
