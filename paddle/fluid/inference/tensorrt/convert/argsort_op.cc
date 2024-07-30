@@ -46,7 +46,7 @@ class ArgsortOpConverter : public OpConverter {
 
     bool flag = false;
     if (k < 0) {
-      k = 0;
+      k = 1;
       flag = true;
     }
 
