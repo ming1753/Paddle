@@ -43,6 +43,24 @@ class ArgsortOpConverter : public OpConverter {
     }
     int k = PADDLE_GET_CONST(int, op_desc.GetAttr("trick_k"));
     bool need_cast = PADDLE_GET_CONST(bool, op_desc.GetAttr("need_cast"));
+
+    bool flag = false;
+    if (k < 0) {
+      k = 0;
+      flag = true;
+    }
+
+    int x_rank = input_tensor->getDimensions().nbDims;
+
+    if (x_rank == 1) {
+      nvinfer1::Dims unsqueeze_shape;
+      unsqueeze_shape.nbDims = 2;
+      unsqueeze_shape.d[0] = 1;
+      unsqueeze_shape.d[1] = -1;
+      input_tensor = Reshape(input_tensor, unsqueeze_shape);
+      axis = 1;
+    }
+  
     if (need_cast) {
       auto* cast_layer1 = TRT_ENGINE_ADD_LAYER(engine_, Identity, *input_tensor);
       cast_layer1->setOutputType(0, nvinfer1::DataType::kFLOAT);
@@ -51,26 +69,71 @@ class ArgsortOpConverter : public OpConverter {
 
       auto* layer = TRT_ENGINE_ADD_LAYER(
         engine_, TopK, *input, operation, k, 1 << axis);
+
+      if (flag) {
+        auto* shape = Shape(input_tensor);
+        auto* indices_count_tensor = GetEleTensorOfShape(shape, axis, true);
+        layer->setInput(1, *indices_count_tensor);
+      }
+      
       auto* tmp_output = layer->getOutput(0);
 
       auto* cast_layer2 = TRT_ENGINE_ADD_LAYER(engine_, Identity, *tmp_output);
       cast_layer2->setOutputType(0, nvinfer1::DataType::kINT32);
       cast_layer2->getOutput(0)->setType(nvinfer1::DataType::kINT32);
 
+      auto* Out = cast_layer2->getOutput(0);
+      auto* Indices = layer->getOutput(1);
+
+      if (x_rank == 1) {
+        nvinfer1::Dims squeeze_shape;
+        squeeze_shape.nbDims = 1;
+        squeeze_shape.d[0] = -1;
+        Out = Reshape(Out, squeeze_shape);
+        Indices = Reshape(Indices, squeeze_shape);
+      } 
+      
       std::string layer_name = "argsort (Output: ";
-      cast_layer2->getOutput(0)->setName(output_name.c_str());
-      engine_->SetITensor(output_name, cast_layer2->getOutput(0));
+      Out->setName(output_name.c_str());
+      engine_->SetITensor(output_name, Out);
       layer_name += output_name + ", ";
       
-      layer->getOutput(1)->setName(indices_name.c_str());
-      engine_->SetITensor(indices_name, layer->getOutput(1));
+      Indices->setName(indices_name.c_str());
+      engine_->SetITensor(indices_name, Indices);
       layer_name += indices_name;
+      
       layer->setName((layer_name + ")").c_str());
     } else {
-    auto* layer = TRT_ENGINE_ADD_LAYER(
-        engine_, TopK, *input_tensor, operation, k, 1 << axis);
-    ReplenishLayerAndOutput(
-        layer, "argsort", {output_name, indices_name}, test_mode);
+      auto* layer = TRT_ENGINE_ADD_LAYER(
+          engine_, TopK, *input_tensor, operation, k, 1 << axis);
+      
+      if (flag) {
+        auto* shape = Shape(input_tensor);
+        auto* indices_count_tensor = GetEleTensorOfShape(shape, axis, true);
+        layer->setInput(1, *indices_count_tensor);
+      }
+
+      auto* Out = layer->getOutput(0);
+      auto* Indices = layer->getOutput(1);
+
+      if (x_rank == 1) {
+        nvinfer1::Dims squeeze_shape;
+        squeeze_shape.nbDims = 1;
+        squeeze_shape.d[0] = -1;
+        Out = Reshape(Out, squeeze_shape);
+        Indices = Reshape(Indices, squeeze_shape);
+      } 
+
+      std::string layer_name = "argsort (Output: ";
+      Out->setName(output_name.c_str());
+      engine_->SetITensor(output_name, Out);
+      layer_name += output_name + ", ";
+      
+      Indices->setName(indices_name.c_str());
+      engine_->SetITensor(indices_name, Indices);
+      layer_name += indices_name;
+      
+      layer->setName((layer_name + ")").c_str());
     }
   }
 };

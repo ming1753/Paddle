@@ -2641,18 +2641,6 @@ struct SparseConvOptimPartern : public PatternBase {
   PATTERN_DECL_NODE(sp_conv3d_out);
 };
 
-struct PncWhereIndexPartern : public PatternBase {
-  PncWhereIndexPartern(PDPattern* pattern, const std::string& name_scope)
-      : PatternBase(pattern, name_scope, "pnc_where_index_pattern") {}
-  void operator()();
-  PATTERN_DECL_NODE(where_index_x); 
-  PATTERN_DECL_NODE(where_index_op);
-  PATTERN_DECL_NODE(where_index_out);
-  PATTERN_DECL_NODE(gather_nd_x);
-  PATTERN_DECL_NODE(gather_nd_op);
-  PATTERN_DECL_NODE(gather_nd_out);
-};
-
 struct PncDealArgsortPartern : public PatternBase {
   PncDealArgsortPartern(PDPattern* pattern, const std::string& name_scope)
       : PatternBase(pattern, name_scope, "pnc_deal_argsort_pattern") {}

@@ -813,6 +813,29 @@ class OpConverter {
       VLOG(1) << "Paddle-TRT inferred " << output_tensor_names[i]
               << "'s dimension is :[" << string::join_strings(tmp_vec, ',')
               << "]";
+
+      auto tmp_type = layer->getOutput(i)->getType();
+      switch (tmp_type) {
+        case nvinfer1::DataType::kFLOAT:
+          VLOG(1) << output_tensor_names[i] << "'s type is float";
+          break;
+        case nvinfer1::DataType::kHALF:
+          VLOG(1) << output_tensor_names[i] << "'s type is half";
+          break;
+        case nvinfer1::DataType::kINT8:
+          VLOG(1) << output_tensor_names[i] << "'s type";
+          break;
+        case nvinfer1::DataType::kINT32:
+          VLOG(1) << output_tensor_names[i] << "'s type is int";
+          break;
+        case nvinfer1::DataType::kBOOL:
+          VLOG(1) << output_tensor_names[i] << "'s type is bool";
+          break;
+        default:
+          PADDLE_THROW(platform::errors::Unimplemented(
+              "The type of output tensor %s is not supported.",
+              output_tensor_names[i]));
+      }
       // The following check may cause errors in CI, but is necessary in the
       // latest version.
       // PADDLE_ENFORCE_GE(

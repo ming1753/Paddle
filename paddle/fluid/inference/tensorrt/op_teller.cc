@@ -2513,16 +2513,14 @@ struct SimpleOpTypeSetTeller : public Teller {
 #if !IS_TRT_VERSION_GE(8200)
       return false;
 #endif
+      if (!with_dynamic_shape) {
+        VLOG(3) << "the set_value op does not support static shape in tensorrt";
+        return false;
+      }
       auto inputs = desc.Inputs();
       if (inputs.find("StartsTensorList") != inputs.end()) {
         if (!desc.Input("StartsTensorList").empty()) {
           VLOG(3) << "the set_value op's StartsTensorList is not empty";
-          return false;
-        }
-      }
-      if (inputs.find("EndsTensorList") != inputs.end()) {
-        if (!desc.Input("EndsTensorList").empty()) {
-          VLOG(3) << "the set_value op's EndsTensorList is not empty";
           return false;
         }
       }
@@ -2542,7 +2540,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       if (desc.HasAttr("axes")) {
         auto axes =
             PADDLE_GET_CONST(std::vector<int64_t>, desc.GetAttr("axes"));
-      if (axes.size() > 1UL) {
+        if (axes.size() > 1UL) {
           VLOG(3)
               << "the set_value op "
               << "has more than one element in attribute axes, it can not "
@@ -2833,10 +2831,6 @@ struct SimpleOpTypeSetTeller : public Teller {
       auto* x_var_desc = block->FindVarRecursive(x_var_name);
       std::vector<int64_t> shape = x_var_desc->GetShape();
       int axis = PADDLE_GET_CONST(int, desc.GetAttr("axis"));
-      if (shape.size() <= 1) {
-        VLOG(3) << op_type << " op shape size <= 1.";
-        return false;
-      }
       if (axis < 0) {
         axis += shape.size();
       }

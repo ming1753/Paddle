@@ -27,20 +27,7 @@ class GatherNdOpConverter : public OpConverter {
     framework::OpDesc op_desc(op, nullptr);
     auto input = engine_->GetITensor(op_desc.Input("X")[0]);
     auto index = engine_->GetITensor(op_desc.Input("Index")[0]);
-    // auto condition = engine_->GetITensor(op_desc.Input("Condition")[0]);
     auto output_name = op_desc.Output("Out")[0];
-    // auto* nonzero_layer = TRT_ENGINE_ADD_LAYER(engine_, NonZero, *condition);
-    // auto* transpose_layer = TRT_ENGINE_ADD_LAYER(engine_, Shuffle, *nonzero_layer->getOutput(0));
-    // nvinfer1::Permutation perm = {1, 0};
-    // transpose_layer->setFirstTranspose(perm);
-    // auto gather_nd_layer = TRT_ENGINE_ADD_LAYER(
-    //     engine_, GatherV2, *input, *transpose_layer->getOutput(0), nvinfer1::GatherMode::kND);
-    // gather_nd_layer->setNbElementWiseDims(0);
-    // ReplenishLayerAndOutput(gather_nd_layer, "net_layer", {output_name}, test_mode);
-
-    // if (op_desc.HasAttr("where_index")) {
-
-    // } else {
     // AddGatherV2 is supported by the trt version of 8.2.
 #if IS_TRT_VERSION_GE(8200)
     VLOG(3) << "convert gather_nd op to tensorrt gather_nd layer";

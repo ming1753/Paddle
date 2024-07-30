@@ -5481,31 +5481,6 @@ void patterns::PncDealArgsortPartern::operator()() {
       .LinksTo({argsort_Out});
 }
 
-
-void patterns::PncWhereIndexPartern::operator()() {
-  auto where_index_x = pattern->NewNode(where_index_x_repr())
-                         ->AsInput()
-                         ->assert_is_op_input("where_index", "Condition");
-  auto where_index_op =
-      pattern->NewNode(where_index_op_repr())->assert_is_op("where_index");
-  auto where_index_out = pattern->NewNode(where_index_out_repr())
-                           ->AsIntermediate()
-                           ->assert_is_op_output("where_index", "Out")
-                           ->assert_is_op_input("gather_nd", "Index");
-  auto gather_nd_x = pattern->NewNode(gather_nd_x_repr())
-                         ->AsInput()
-                         ->assert_is_op_input("gather_nd", "X");
-  auto gather_nd_op =  pattern->NewNode(gather_nd_op_repr())->assert_is_op("gather_nd");
-  auto gather_nd_out = pattern->NewNode(gather_nd_out_repr())
-                          ->AsOutput()
-                          ->assert_is_op_output("gather_nd", "Out");
-
-  where_index_op->LinksFrom({where_index_x})
-      .LinksTo({where_index_out});
-  gather_nd_op->LinksFrom({gather_nd_x, where_index_out})
-      .LinksTo({gather_nd_out});
-}
-
 }  // namespace ir
 }  // namespace framework
 }  // namespace paddle
