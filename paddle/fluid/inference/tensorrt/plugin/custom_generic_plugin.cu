@@ -612,12 +612,12 @@ int CustomGenericPlugin::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
         std::dynamic_pointer_cast<phi::DenseTensor>(calc_outs->at(i).impl());
     if (reinterpret_cast<void*>(calc_out->data()) !=
         reinterpret_cast<void*>(outputs[i])) {
-      LOG_FIRST_N(WARNING, 1)
-          << "You created new Tensor(s) in custom operator(s) used as "
-             "output(s), "
-             "we will do cudaMemcpy to synchronize the output(s) "
-             "address needed by TensorRT plugin. "
-             "Inplace operation is highly recommended for better performance.";
+      // LOG_FIRST_N(WARNING, 1)
+      //     << "You created new Tensor(s) in custom operator(s) used as "
+      //        "output(s), "
+      //        "we will do cudaMemcpy to synchronize the output(s) "
+      //        "address needed by TensorRT plugin. "
+      //        "Inplace operation is highly recommended for better performance.";
       auto const& output_dims = output_desc[i].dims;
       std::vector<int> output_shape;
       for (int j = 0; j < output_dims.nbDims; j++)
