@@ -499,36 +499,15 @@ int CustomGenericPlugin::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
   CHECK((data_type == nvinfer1::DataType::kFLOAT) ||
         (data_type == nvinfer1::DataType::kHALF));
 
+  auto& op_meta_info_map = OpMetaInfoMap::Instance();
+  const auto& meta_info_map = op_meta_info_map.GetMap();
+  auto& op_info = meta_info_map.at(op_desc_.Type()).front();
+
+  std::vector<std::string> op_inputs = OpMetaInfoHelper::GetInputs(op_info);
+  std::vector<std::string> op_outputs = OpMetaInfoHelper::GetOutputs(op_info);
+  std::unordered_map<std::string, std::string> op_inplace_map = OpMetaInfoHelper::GetInplaceMap(op_info);
+
   paddle::CustomOpKernelContext kernel_ctx;
-  // input
-  for (int i = 0; i < getNbInputs(); i++) {
-    if (inputs_data_type_[i] ==
-        GenerateCustomGenericPluginDataType::PLUGIN_OPTIONAL) {
-      (*tensor_inputs_)[i] = paddle::Tensor();
-      continue;
-    }
-    auto const& input_dims = input_desc[i].dims;
-
-    std::vector<int> input_shape;
-    for (int j = 0; j < input_dims.nbDims; j++)
-      input_shape.push_back(input_dims.d[j]);
-
-    int input_numel = 1;
-    for (int k : input_shape) input_numel *= k;
-
-    auto data_type_and_size =
-        protoType2PhiType(inputs_data_type_[i], data_type);
-
-    phi::DenseTensorMeta input_meta(data_type_and_size.first,
-                                    phi::make_ddim(input_shape));
-    std::shared_ptr<phi::Allocation> input_alloc(
-        new phi::Allocation((void*)(inputs[i]),  // NOLINT
-                            input_numel * data_type_and_size.second,
-                            place));
-    (*tensor_inputs_)[i] = paddle::Tensor(
-        std::make_shared<phi::DenseTensor>(input_alloc, input_meta));
-    kernel_ctx.EmplaceBackInput(std::move((*tensor_inputs_)[i]));
-  }
 
   // output
   for (int i = 0; i < getNbOutputs(); i++) {
@@ -554,9 +533,53 @@ int CustomGenericPlugin::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
     kernel_ctx.EmplaceBackOutput(std::move((*tensor_outputs_)[i]));
   }
 
-  auto& op_meta_info_map = OpMetaInfoMap::Instance();
-  const auto& meta_info_map = op_meta_info_map.GetMap();
-  auto& op_info = meta_info_map.at(op_desc_.Type()).front();
+  // input
+  for (int i = 0; i < getNbInputs(); i++) {
+    if (inputs_data_type_[i] ==
+        GenerateCustomGenericPluginDataType::PLUGIN_OPTIONAL) {
+      (*tensor_inputs_)[i] = paddle::Tensor();
+      continue;
+    }
+    auto const& input_dims = input_desc[i].dims;
+
+    std::vector<int> input_shape;
+    for (int j = 0; j < input_dims.nbDims; j++)
+      input_shape.push_back(input_dims.d[j]);
+
+    int input_numel = 1;
+    for (int k : input_shape) input_numel *= k;
+
+    auto data_type_and_size =
+        protoType2PhiType(inputs_data_type_[i], data_type);
+
+    if (op_inplace_map.find(op_inputs[i]) != op_inplace_map.end()) {
+      auto out_iter = find(op_outputs.begin(), op_outputs.end(), op_inplace_map.at(op_inputs[i]));
+      PADDLE_ENFORCE_NE(out_iter,
+                        op_outputs.end(),
+                        common::errors::NotFound(
+                            "Can't find the mapped value of %s, please check "
+                            "the input of `Inplace` again and make "
+                            "sure you registered your op accurately. ",
+                            op_inputs[i]));
+      size_t out_idx = distance(op_outputs.begin(), out_iter); 
+
+          auto tmp_dence =
+        std::dynamic_pointer_cast<phi::DenseTensor>((*tensor_outputs_)[out_idx].impl());
+
+      kernel_ctx.EmplaceBackInput(std::move((*tensor_outputs_)[out_idx]));
+    } else {
+        phi::DenseTensorMeta input_meta(data_type_and_size.first,
+                                  phi::make_ddim(input_shape));
+      std::shared_ptr<phi::Allocation> input_alloc(
+          new phi::Allocation((void*)(inputs[i]),  // NOLINT
+                              input_numel * data_type_and_size.second,
+                              place));
+      (*tensor_inputs_)[i] = paddle::Tensor(
+          std::make_shared<phi::DenseTensor>(input_alloc, input_meta));
+      kernel_ctx.EmplaceBackInput(std::move((*tensor_inputs_)[i]));
+    }
+  }
+
   auto& op_attrs_names = OpMetaInfoHelper::GetAttrs(op_info);
   auto& attrs = op_desc_.GetAttrMap();
   for (auto& op_attrs_name : op_attrs_names) {
@@ -588,7 +611,7 @@ int CustomGenericPlugin::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
       kernel_ctx.EmplaceBackAttr(
           PADDLE_GET_CONST(std::vector<std::string>, attrs.at(attr_name)));
     } else {
-      PADDLE_THROW(platform::errors::Unimplemented(
+      PADDLE_THROW(common::errors::Unimplemented(
           "Unsupported `%s` type value as custom attribute now. "
           "Supported data types include `bool`, `int`, `float`, "
           "`int64_t`, `std::string`, `std::vector<int>`, "
@@ -598,10 +621,11 @@ int CustomGenericPlugin::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
           attr_type_str));
     }
   }
+
+  kernel_ctx.UpdatePlainOutputs(op_inputs,
+                                op_outputs,
+                                op_inplace_map);
   auto kernel_fn = OpMetaInfoHelper::GetKernelFn(op_info);
-  kernel_ctx.UpdatePlainOutputs(OpMetaInfoHelper::GetInputs(op_info),
-                                OpMetaInfoHelper::GetOutputs(op_info),
-                                OpMetaInfoHelper::GetInplaceMap(op_info));
   kernel_fn(&kernel_ctx);
   kernel_ctx.AssignInplaceOutputs();
 
@@ -612,12 +636,12 @@ int CustomGenericPlugin::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
         std::dynamic_pointer_cast<phi::DenseTensor>(calc_outs->at(i).impl());
     if (reinterpret_cast<void*>(calc_out->data()) !=
         reinterpret_cast<void*>(outputs[i])) {
-      // LOG_FIRST_N(WARNING, 1)
-      //     << "You created new Tensor(s) in custom operator(s) used as "
-      //        "output(s), "
-      //        "we will do cudaMemcpy to synchronize the output(s) "
-      //        "address needed by TensorRT plugin. "
-      //        "Inplace operation is highly recommended for better performance.";
+      LOG_FIRST_N(WARNING, 1)
+          << "You created new Tensor(s) in custom operator(s) used as "
+             "output(s), "
+             "we will do cudaMemcpy to synchronize the output(s) "
+             "address needed by TensorRT plugin. "
+             "Inplace operation is highly recommended for better performance.";
       auto const& output_dims = output_desc[i].dims;
       std::vector<int> output_shape;
       for (int j = 0; j < output_dims.nbDims; j++)
