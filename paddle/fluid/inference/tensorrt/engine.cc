@@ -348,14 +348,6 @@ void TensorRTEngine::FreezeNetwork() {
             Vec2TRT_Dims(optim_input_shape()[input.first], input.first, true));
       }
 
-      auto tmp_vec = [](std::vector<int>& vec){
-        std::string shape_std = "[";
-        for (auto& v : vec) {
-          shape_std += std::to_string(v) + ",";
-        }
-        return shape_std.substr(0, shape_std.length() - 1) + "]";
-      };
-
       for (int input_id = 0; input_id < network()->getNbInputs(); input_id++) {
         auto input_name = network()->getInput(input_id)->getName();
         if (!itensor_map_.count(input_name)) continue;
@@ -368,10 +360,6 @@ void TensorRTEngine::FreezeNetwork() {
                               "Fail to find min/max/optim shape value for TRT "
                               "network's shape tensor input named %s.",
                               input_name));
-        LOG(INFO) << input_name;
-        LOG(INFO) << "min: " << tmp_vec(min_shape_tensor().at(input_name));
-        LOG(INFO) << "max: " << tmp_vec(max_shape_tensor().at(input_name));
-        LOG(INFO) << "opt: " << tmp_vec(optim_shape_tensor().at(input_name));
         auto min_vec = min_shape_tensor().at(input_name);
         optim_profiles_[i]->setShapeValues(input_name,
                                            nvinfer1::OptProfileSelector::kMIN,
