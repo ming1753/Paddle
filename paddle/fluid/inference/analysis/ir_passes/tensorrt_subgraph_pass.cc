@@ -224,6 +224,16 @@ void analysis::TensorRtSubgraphPass::ApplyImpl(
   if (all_nodes_offload_to_trt) {
     LOG(INFO) << "The entire graph is offloaded to TensorRT.";
   }
+
+  auto& force_old_executor = graph->GetOrInit<bool>(
+    framework::ir::kForceOldExecutor);
+  
+  if (all_nodes_offload_to_trt) {
+    force_old_executor = true;
+  } else {
+    force_old_executor = false;
+  }
+  
   if (use_cuda_graph && !all_nodes_offload_to_trt) {
     LOG_FIRST_N(WARNING, 1)
         << "You have enabled CudaGraph, but not the entire graph offload to "

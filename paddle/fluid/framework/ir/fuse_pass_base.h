@@ -45,6 +45,9 @@ static const char kRepetitiveParamAttr[] = "__repetitive_param__";
 static const char kScaleAndZeroPointParamAttr[] =
     "__scale_and_zero_point_param__";
 
+// Use old executor when the entire graph is offloaded to tensorRT for better performance.
+static const char kForceOldExecutor[] = "__force_old_executor__";
+
 enum FuseOptions {
   DO_NOT_FUSE,  // fusing will not be done
   FUSE_NATIVE,  // fusing will be done without MKL-DNN

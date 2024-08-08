@@ -459,6 +459,10 @@ bool AnalysisPredictor::Init(
     return false;
   }
 
+  if (argument_->main_graph().Has("__force_old_executor__")) {
+    config_.use_new_executor_ = !argument_->main_graph().Get<bool>("__force_old_executor__");
+  }
+
   // Get the feed_target_names and fetch_target_names
   PrepareFeedFetch();
 
