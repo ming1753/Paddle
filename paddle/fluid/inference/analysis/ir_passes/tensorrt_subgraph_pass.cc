@@ -38,6 +38,8 @@
 #include "paddle/phi/common/backend.h"
 #include "paddle/phi/common/data_type.h"
 
+COMMON_DECLARE_bool(force_old_executor);
+
 namespace paddle {
 namespace inference {
 namespace analysis {
@@ -223,15 +225,7 @@ void analysis::TensorRtSubgraphPass::ApplyImpl(
   bool all_nodes_offload_to_trt = AllNodesLowerToTrtPostProcess(graph);
   if (all_nodes_offload_to_trt) {
     LOG(INFO) << "The entire graph is offloaded to TensorRT.";
-  }
-
-  auto& force_old_executor = graph->GetOrInit<bool>(
-    framework::ir::kForceOldExecutor);
-  
-  if (all_nodes_offload_to_trt) {
-    force_old_executor = true;
-  } else {
-    force_old_executor = false;
+    FLAGS_force_old_executor = true;
   }
   
   if (use_cuda_graph && !all_nodes_offload_to_trt) {

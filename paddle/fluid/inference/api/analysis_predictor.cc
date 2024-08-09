@@ -127,6 +127,7 @@
 #include "paddle/pir/include/pass/pass_registry.h"
 
 COMMON_DECLARE_bool(pir_apply_inplace_pass);
+COMMON_DECLARE_bool(force_old_executor);
 
 namespace paddle {
 namespace {
@@ -459,8 +460,8 @@ bool AnalysisPredictor::Init(
     return false;
   }
 
-  if (argument_->main_graph().Has("__force_old_executor__")) {
-    config_.use_new_executor_ = !argument_->main_graph().Get<bool>("__force_old_executor__");
+  if (FLAGS_force_old_executor) {
+    config_.use_new_executor_ = false;
   }
 
   // Get the feed_target_names and fetch_target_names
@@ -584,7 +585,11 @@ std::string AnalysisPredictor::GetOptimizedModelPath() {
 void AnalysisPredictor::ClearExtraParams() {
   auto var_names = scope_->LocalVarNames();
   std::vector<std::string> trt_repetitive_params;
+  size_t op_num = 0;
   for (auto &op_desc : inference_program_->Block(0).AllOps()) {
+    if (op_desc->Type() != "feed" && op_desc->Type() != "fetch") {
+      ++op_num;
+    }
     if (op_desc->Type() == "tensorrt_engine") {
       auto trt_params = PADDLE_GET_CONST(std::vector<std::string>,
                                          op_desc->GetAttr("parameters"));
@@ -613,6 +618,10 @@ void AnalysisPredictor::ClearExtraParams() {
         op_desc->SetAttr("predictor_id", predictor_id_);
       }
     }
+  }
+
+  if (op_num <= 1) {
+    FLAGS_force_old_executor = true;
   }
 
   std::vector<std::string> extra_params;
