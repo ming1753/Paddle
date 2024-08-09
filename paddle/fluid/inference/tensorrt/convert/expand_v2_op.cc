@@ -57,16 +57,17 @@ class ExpandOpConverter : public OpConverter {
         shape_rank = shape.size();
       }
     } else if (op_type_ == "expand_as_v2") {
-      // if (inputs.find("Y") != inputs.end()) {
-      //   shape_tensor = engine_->GetITensor(op_desc.Input("Y")[0]);
-      //   shape_rank = shape_tensor->getDimensions().nbDims;
-      // } else {
+      if (inputs.find("Y") != inputs.end()) {
+        auto Y_t = engine_->GetITensor(op_desc.Input("Y")[0]);
+        shape_tensor = Shape(Y_t);
+        shape_rank = Y_t->getDimensions().nbDims;
+      } else {
         std::vector<int32_t> shape = PADDLE_GET_CONST(
             std::vector<int32_t>, op_desc.GetAttr("target_shape"));
         shape_tensor =
             Add1DConstantLayer(shape, output_name + "_target_shape_tensor_");
         shape_rank = shape.size();
-      // }
+      }
     }
 
     nvinfer1::ITensor* input_shape_tensor;
