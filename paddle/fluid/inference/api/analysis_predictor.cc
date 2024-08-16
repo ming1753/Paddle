@@ -3563,6 +3563,14 @@ void ConvertToMixedPrecision(const std::string &model_file,
                                                        white_list);
 }
 
+cudaStream_t GetCudaStream(){
+  paddle::platform::DeviceContextPool& pool =
+      paddle::platform::DeviceContextPool::Instance();
+  paddle::platform::CUDAPlace place(paddle::platform::GetCurrentDeviceId());
+  auto* dev_ctx = static_cast<phi::GPUContext*>(pool.Get(place));
+  return dev_ctx->stream();
+}
+
 }  // namespace paddle_infer
 
 namespace paddle_infer {

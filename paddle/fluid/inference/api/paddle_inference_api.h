@@ -248,6 +248,8 @@ PD_INFER_DECL void ConvertToMixedPrecision(
     std::unordered_set<std::string> black_list = {},
     std::unordered_set<std::string> white_list = {});
 
+PD_INFER_DECL cudaStream_t GetCudaStream();
+
 namespace services {
 ///
 /// \class PredictorPool
