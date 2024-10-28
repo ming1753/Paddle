@@ -4175,7 +4175,8 @@ __global__ void GetDecoderTensorKernel(const T *qkv_out,
                                        const int kv_head_num,
                                        const int seq_len,
                                        const int dim_head,
-                                       const int elem_nums) {
+                                       const int elem_nums,
+                                       const int qkv_out_nums) {
   using LoadT = phi::AlignedVector<T, VecSize>;
   LoadT src_vec;
   const int32_t fused_hidden_size = (q_head_num + 2 * kv_head_num) * dim_head;
@@ -4186,6 +4187,7 @@ __global__ void GetDecoderTensorKernel(const T *qkv_out,
     const int bias_idx = i % fused_hidden_size;
     const int ori_token_idx = bi * seq_len - cum_offsets[bi];
     const int src_offset = ori_token_idx * fused_hidden_size + bias_idx;
+    if (src_offset >= qkv_out_nums) continue;
     phi::Load<T, VecSize>(&qkv_out[src_offset], &src_vec);
     phi::Store<T, VecSize>(src_vec, &qkv_out_decoder[i]);
   }
@@ -4234,6 +4236,7 @@ void GetDecoderTensor(const phi::GPUContext &dev_ctx,
   // kv_num_head + q_num_head, dim_head] rope: [2, bsz, 1, seq_len, dim_head] ->
   // [2, bsz, 1, 1, dim_head]
   int elem_nums = qkv_out_decoder->numel();
+  int qkv_out_nums = qkv_out.numel();
   constexpr int PackSize = VEC_16B / sizeof(T);
   PADDLE_ENFORCE_EQ(
       dim_head % PackSize,
@@ -4255,7 +4258,8 @@ void GetDecoderTensor(const phi::GPUContext &dev_ctx,
           kv_num_head,
           seq_len,
           dim_head,
-          elem_nums);
+          elem_nums,
+          qkv_out_nums);
   if (rope_out_emb) {
     elem_nums = rope_out_emb->numel() / 2;
     pack_num = elem_nums / PackSize;
