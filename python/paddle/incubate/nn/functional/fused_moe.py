@@ -84,8 +84,8 @@ def fused_moe(
             ffn2_bias,
             quant_method,
             moe_topk,
-            norm_topk_prob,
             group_moe,
+            norm_topk_prob,
         )
         return final_out
     else:
@@ -114,8 +114,8 @@ def fused_moe(
             attrs={
                 'quant_method': quant_method,
                 'moe_topk': moe_topk,
-                'norm_topk_prob': norm_topk_prob,
                 'group_moe': group_moe,
+                'norm_topk_prob': norm_topk_prob,
             },
         )
         return final_out
