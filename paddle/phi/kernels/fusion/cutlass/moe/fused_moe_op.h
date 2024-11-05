@@ -56,6 +56,134 @@ namespace phi {
 // We have our own implementation of softmax here so we can support transposing
 // the output in the softmax kernel when we extend this module to support
 // expert-choice routing.
+template<typename T, int TPB>
+__launch_bounds__(TPB) __global__ void moe_softmax(const T* input, const bool* finished, T* output, T* softmax_max_prob, const int num_cols)
+{
+    using BlockReduce = cub::BlockReduce<float, TPB>;
+    __shared__ typename BlockReduce::TempStorage tmpStorage;
+
+    __shared__ float normalizing_factor;
+    __shared__ float float_max;
+    __shared__ float max_out;
+
+    const int thread_row_offset = blockIdx.x * num_cols;
+
+    cub::Sum sum;
+    float    threadData(-FLT_MAX);
+
+    // Don't touch finished rows.
+    // if ((finished != nullptr) && finished[blockIdx.x]) {
+    //     return;
+    // }
+
+    for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+        const int idx = thread_row_offset + ii;
+        threadData    = max(static_cast<float>(input[idx]), threadData);
+    }
+
+    const float maxElem = BlockReduce(tmpStorage).Reduce(threadData, cub::Max());
+    if (threadIdx.x == 0) {
+        float_max = maxElem;
+    }
+    __syncthreads();
+
+    threadData = 0;
+
+    for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+        const int idx = thread_row_offset + ii;
+        threadData += exp((static_cast<float>(input[idx]) - float_max));
+    }
+
+    const auto Z = BlockReduce(tmpStorage).Reduce(threadData, sum);
+
+    if (threadIdx.x == 0) {
+        normalizing_factor = 1.f / Z;
+    }
+    __syncthreads();
+
+    threadData = 0;
+
+    for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+        const int   idx = thread_row_offset + ii;
+        const float val = exp((static_cast<float>(input[idx]) - float_max)) * normalizing_factor;
+        output[idx]     = T(val);
+        threadData    = max(static_cast<float>(T(val)), threadData);
+    }
+
+    const float maxOut = BlockReduce(tmpStorage).Reduce(threadData, cub::Max());
+    if (threadIdx.x == 0) {
+        // printf("maxOut.  %f \n ", maxOut);
+        // printf("blockIdx.x.  %d \n ", blockIdx.x);
+        max_out = 1.f / maxOut;
+        softmax_max_prob[blockIdx.x] = T(max_out);
+        // printf("float_max %f \n", max_out);
+    }
+    __syncthreads();
+
+    for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+        const int   idx = thread_row_offset + ii;
+        output[idx]     = output[idx] * max_out;
+    }
+}
+
+template<typename T, int TPB>
+__launch_bounds__(TPB) __global__ void moe_top_k(const T*    inputs_after_softmax,
+                                                 const bool* finished,
+                                                 T*          output,
+                                                 int*        indices,
+                                                 int*        source_rows,
+                                                 T*          softmax_max_prob,
+                                                 const int   num_experts,
+                                                 const int   k)
+{
+
+    using cub_kvp     = cub::KeyValuePair<int, T>;
+    using BlockReduce = cub::BlockReduce<cub_kvp, TPB>;
+    __shared__ typename BlockReduce::TempStorage tmpStorage;
+
+    cub_kvp     thread_kvp;
+    cub::ArgMax arg_max;
+
+    const int num_rows  = gridDim.x;
+    const int block_row = blockIdx.x;
+
+    const bool should_process_row = finished ? !finished[block_row] : true;
+    const int  thread_read_offset = blockIdx.x * num_experts;
+
+    for (int k_idx = 0; k_idx < k; ++k_idx) {
+        thread_kvp.key   = 0;
+        thread_kvp.value = T(-1.f);  // This is OK because inputs are probabilities
+
+        cub_kvp inp_kvp;
+        for (int expert = threadIdx.x; expert < num_experts; expert += TPB) {
+            const int idx = thread_read_offset + expert;
+            inp_kvp.key   = expert;
+            inp_kvp.value = inputs_after_softmax[idx];
+
+            for (int prior_k = 0; prior_k < k_idx; ++prior_k) {
+                const int prior_winning_expert = indices[k * block_row + prior_k];
+
+                if (prior_winning_expert == expert) {
+                    inp_kvp = thread_kvp;
+                }
+            }
+
+            thread_kvp = arg_max(inp_kvp, thread_kvp);
+        }
+
+        const cub_kvp result_kvp = BlockReduce(tmpStorage).Reduce(thread_kvp, arg_max);
+        if (threadIdx.x == 0) {
+            const int idx    = k * block_row + k_idx;
+            // printf("softmax_max_prob[idx].  %f \n", softmax_max_prob[idx]);
+            output[idx]      = result_kvp.value / T(softmax_max_prob[idx]);
+            indices[idx]     = should_process_row ? result_kvp.key : num_experts;
+            source_rows[idx] = k_idx * num_rows + block_row;
+        }
+        __syncthreads();
+    }
+}
+
+
 template <typename T, int TPB>
 __launch_bounds__(TPB) __global__ void moe_softmax(const T* input,
                                                    const bool* finished,
@@ -454,9 +582,11 @@ void topk_gating_softmax_kernelLauncher(const T* input,
                                         T* softmax,
                                         int* indices,
                                         int* source_row,
+                                        T* softmax_max_prob,
                                         const int num_rows,
                                         const int num_experts,
                                         const int k,
+                                        const bool group_moe,
                                         cudaStream_t stream) {
   static constexpr int WARPS_PER_TB = 4;
 
@@ -559,10 +689,18 @@ void topk_gating_softmax_kernelLauncher(const T* input,
     }
     default: {
       static constexpr int TPB = 256;
-      moe_softmax<T, TPB>
+      if (group_moe) {
+        const int group_experts = num_experts / k;
+        const int softmax_num_rows = num_rows * k;
+        moe_softmax<T, TPB><<<softmax_num_rows, TPB, 0, stream>>>(input, finished, softmax, softmax_max_prob, group_experts);
+        moe_top_k<T, TPB><<<num_rows, TPB, 0, stream>>>(
+            softmax, finished, output, indices, source_row, softmax_max_prob, num_experts, k);
+      } else {
+        moe_softmax<T, TPB>
           <<<num_rows, TPB, 0, stream>>>(input, finished, softmax, num_experts);
-      moe_top_k<T, TPB><<<num_rows, TPB, 0, stream>>>(
+        moe_top_k<T, TPB><<<num_rows, TPB, 0, stream>>>(
           softmax, finished, output, indices, source_row, num_experts, k);
+      }
     }
   }
 }
@@ -764,6 +902,7 @@ __global__ void finalize_moe_routing_kernel(
 template <typename T>
 void finalize_moe_routing_kernelLauncher(
     const T* expanded_permuted_rows,
+    // const T* shared_out,
     T* reduced_unpermuted_output,
     const T* bias,
     const float* scales,
@@ -777,18 +916,32 @@ void finalize_moe_routing_kernelLauncher(
     cudaStream_t stream) {
   const int blocks = num_rows;
   const int threads = std::min(cols, 1024);
-
-  finalize_moe_routing_kernel<T, 1>
-      <<<blocks, threads, 0, stream>>>(expanded_permuted_rows,
-                                       reduced_unpermuted_output,
-                                       bias,
-                                       scales,
-                                       expanded_source_row_to_expanded_dest_row,
-                                       expert_for_source_row,
-                                       cols,
-                                       k,
-                                       compute_bias,
-                                       norm_topk_prob);
+  // if (moe_num_shared_experts > 0) {
+  //   finalize_moe_routing_kernel_with_shared<T, 1>
+  //     <<<blocks, threads, 0, stream>>>(expanded_permuted_rows,
+  //                                     shared_out,
+  //                                     reduced_unpermuted_output,
+  //                                     bias,
+  //                                     scales,
+  //                                     expanded_source_row_to_expanded_dest_row,
+  //                                     expert_for_source_row,
+  //                                     cols,
+  //                                     k,
+  //                                     compute_bias,
+  //                                     norm_topk_prob);
+  // } else {
+    finalize_moe_routing_kernel<T, 1>
+    <<<blocks, threads, 0, stream>>>(expanded_permuted_rows,
+                                      reduced_unpermuted_output,
+                                      bias,
+                                      scales,
+                                      expanded_source_row_to_expanded_dest_row,
+                                      expert_for_source_row,
+                                      cols,
+                                      k,
+                                      compute_bias,
+                                      norm_topk_prob);
+  // }
 }
 
 // ========================= TopK Softmax specializations
@@ -799,32 +952,39 @@ template void topk_gating_softmax_kernelLauncher(const float*,
                                                  float*,
                                                  int*,
                                                  int*,
+                                                 float*,
                                                  const int,
                                                  const int,
                                                  const int,
+                                                 const bool,
                                                  cudaStream_t);
-template void topk_gating_softmax_kernelLauncher(const half*,
-                                                 const bool*,
-                                                 half*,
-                                                 half*,
-                                                 int*,
-                                                 int*,
-                                                 const int,
-                                                 const int,
-                                                 const int,
-                                                 cudaStream_t);
-#ifdef PADDLE_CUDA_BF16
-template void topk_gating_softmax_kernelLauncher(const __nv_bfloat16*,
-                                                 const bool*,
-                                                 __nv_bfloat16*,
-                                                 __nv_bfloat16*,
-                                                 int*,
-                                                 int*,
-                                                 const int,
-                                                 const int,
-                                                 const int,
-                                                 cudaStream_t);
-#endif
+
+// template void topk_gating_softmax_kernelLauncher(const half*,
+//                                                  const bool*,
+//                                                  half*,
+//                                                  half*,
+//                                                  int*,
+//                                                  int*,
+//                                                  half*,
+//                                                  const int,
+//                                                  const int,
+//                                                  const int,
+//                                                  const bool,
+//                                                  cudaStream_t);
+// #ifdef PADDLE_CUDA_BF16
+// template void topk_gating_softmax_kernelLauncher(const __nv_bfloat16*,
+//                                                  const bool*,
+//                                                  __nv_bfloat16*,
+//                                                  __nv_bfloat16*,
+//                                                  int*,
+//                                                  int*,
+//                                                  __nv_bfloat16*,
+//                                                  const int,
+//                                                  const int,
+//                                                  const int,
+//                                                  const bool,
+//                                                  cudaStream_t);
+// #endif
 // ===================== Specializations for init routing
 // =========================
 template void initialize_moe_routing_kernelLauncher(const float*,

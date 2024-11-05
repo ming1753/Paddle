@@ -185,12 +185,18 @@ class TestFusedMoEOp(OpTest):
         paddle.disable_static(place=paddle.CUDAPlace(0))
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states = paddle.reshape(hidden_states, [-1, hidden_dim])
+        print("hidden_states :", hidden_states.shape)
         router_logits = self.gate(hidden_states).cast(paddle.float32)
-
+        # [1280, 32]
+        print("router_logits shape :", router_logits.shape)
         routing_weights = F.softmax(router_logits, axis=-1, dtype='float32')
         routing_weights, selected_experts = paddle.topk(
             routing_weights, self.top_k, axis=-1
         )
+        # [1280, 2]
+        print(routing_weights.shape)
+        # [1280, 2]
+        print("selected_experts :", selected_experts)
         # mixtral true, qwen_moe false
         if self.norm_topk_prob:
             routing_weights /= paddle.sum(
@@ -218,10 +224,12 @@ class TestFusedMoEOp(OpTest):
             current_state = paddle.index_select(
                 hidden_states, top_x, axis=0
             ).reshape([-1, hidden_dim])
+            print("current_state : ", current_state.shape)
             current_hidden_states = (
                 expert_layer(current_state, expert_idx)
                 * routing_weights[top_x, idx]
             )
+            print("current_hidden_states : ", current_hidden_states.shape)
             # Use scatter to accumulate the results
             paddle.index_add_(
                 x=final_hidden_states,
@@ -238,6 +246,7 @@ class TestFusedMoEOp(OpTest):
     def test_fused_moe_op_new(self):
         ref_out = self.GetBaselineOut(self.tensor_x).cast(np.float32)
         fused_moe_out = self.GetFusedMoeOut(self.tensor_x).cast(np.float32)
+        # print(fused_moe_out)
         np.testing.assert_allclose(
             ref_out, fused_moe_out, rtol=self.rtol, atol=self.atol
         )
@@ -506,6 +515,7 @@ class TestFusedMoEOpStatic(OpTest):
     def test_fused_moe_op_new(self):
         ref_out = self.GetBaselineOut(self.tensor_x).cast(np.float32)
         fused_moe_out = self.GetFusedMoeOut(self.tensor_x)
+        print("gaoziyuan")
         np.testing.assert_allclose(
             ref_out, fused_moe_out, rtol=self.rtol, atol=self.atol
         )

@@ -29,6 +29,7 @@ def fused_moe(
     quant_method="None",
     moe_topk=2,
     norm_topk_prob=True,
+    group_moe=True,
 ):
     """
     Applies fused moe kernel.
@@ -84,6 +85,7 @@ def fused_moe(
             quant_method,
             moe_topk,
             norm_topk_prob,
+            group_moe,
         )
         return final_out
     else:
@@ -113,6 +115,7 @@ def fused_moe(
                 'quant_method': quant_method,
                 'moe_topk': moe_topk,
                 'norm_topk_prob': norm_topk_prob,
+                'group_moe': group_moe,
             },
         )
         return final_out
