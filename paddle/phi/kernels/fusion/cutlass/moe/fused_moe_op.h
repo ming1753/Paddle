@@ -696,10 +696,10 @@ void topk_gating_softmax_kernelLauncher(const T* input,
         moe_top_k<T, TPB><<<num_rows, TPB, 0, stream>>>(
             softmax, finished, output, indices, source_row, softmax_max_prob, num_experts, k);
       } else {
-        moe_softmax<T, TPB>
-          <<<num_rows, TPB, 0, stream>>>(input, finished, softmax, num_experts);
+        // moe_softmax<T, TPB>
+        //   <<<num_rows, TPB, 0, stream>>>(input, finished, softmax, num_experts);
         moe_top_k<T, TPB><<<num_rows, TPB, 0, stream>>>(
-          softmax, finished, output, indices, source_row, num_experts, k);
+          input, finished, output, indices, source_row, num_experts, k);
       }
     }
   }

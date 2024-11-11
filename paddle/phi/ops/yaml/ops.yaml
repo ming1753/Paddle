@@ -3210,6 +3210,40 @@
   backward : margin_cross_entropy_grad
   interfaces : paddle::dialect::InferSymbolicShapeInterface
 
+
+
+
+- op : moe_dispatch
+  args : (Tensor X, Tensor gating_output, int moe_topk)
+  output : Tensor(out), Tensor(token_nums_per_expert), Tensor(scatter_index), Tensor(expert_scales_float), Tensor(expert_for_source_row_tensor)
+  infer_meta :
+    func : moe_dispatchInferMeta
+  kernel :
+    func : moe_dispatch
+    data_type : X
+
+
+- op : moe_ffn
+  args : (Tensor X, Tensor rows_per_expert, Tensor ffn1_weight, Tensor ffn1_scale, Tensor ffn1_bias, Tensor ffn2_weight, Tensor ffn2_scale, str quant_method)
+  output : Tensor(ffn_out)
+  infer_meta :
+    func : moe_ffnInferMeta
+  kernel :
+    func : moe_ffn
+    data_type : X
+  optional : ffn1_scale, ffn1_bias, ffn2_scale
+
+- op : moe_reduce
+  args : (Tensor fc2_result, Tensor fc2_expert_biases, Tensor expert_scales_float, Tensor expanded_source_row_to_expanded_dest_row, Tensor topk_indices, bool norm_topk_prob = false)
+  output : Tensor(output)
+  infer_meta :
+    func : moe_reduceInferMeta
+  kernel :
+    func : moe_reduce
+    data_type : fc2_result
+  optional : fc2_expert_biases
+
+
 - op : masked_multihead_attention_
   args : (Tensor x, Tensor cache_kv, Tensor bias, Tensor src_mask, Tensor cum_offsets, Tensor sequence_lengths, Tensor rotary_tensor, Tensor beam_cache_offset, Tensor qkv_out_scale, Tensor out_shift, Tensor out_smooth, int seq_len, int rotary_emb_dims, bool use_neox_rotary_style=false, str compute_dtype = "default", float out_scale=-1, int quant_round_type=1, float quant_max_bound=127.0, float quant_min_bound=-127.0)
   output : Tensor(out), Tensor(cache_kv_out), Tensor(beam_cache_offset_out)
