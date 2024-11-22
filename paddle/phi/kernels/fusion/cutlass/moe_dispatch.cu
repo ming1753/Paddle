@@ -65,7 +65,7 @@ void MoeDispatchKernel(const Context& ctx,
     DenseTensor tmp1 = Empty<float>(ctx, {num_rows * expert_num});
     float *softmax_out_ = tmp1.data<float>();
      
-    std::cout << num_rows <<" "<<  expert_num << "  " << moe_topk <<  std::endl;
+    //std::cout << num_rows <<" "<<  expert_num << "  " << moe_topk <<  std::endl;
     
     // comment: _, expert_for_source_row = paddle.topk(gating_output, moe_topk, axis=-1)
     topk_gating_softmax_kernelLauncher<float>(gating_output.data<float>(),

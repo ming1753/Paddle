@@ -119,3 +119,109 @@ def fused_moe(
             },
         )
         return final_out
+
+
+
+def moe_dispatch(x, gate_out, topk):
+    if in_dynamic_mode():
+        permute_input, token_nums_per_expert, scatter_index ,expert_scales_float, top_k_indices = _C_ops.moe_dispatch(x, gate_out, topk)
+        return permute_input, token_nums_per_expert, scatter_index, expert_scales_float, top_k_indices
+
+    helper = LayerHelper('moe_dispatch', **locals())
+
+    outputs_dict = {}
+
+    permute_input = helper.create_variable_for_type_inference(dtype=x.dtype)
+    token_nums_per_expert = helper.create_variable_for_type_inference(dtype="int64")
+    scatter_index = helper.create_variable_for_type_inference(dtype="int32")
+    expert_scales_float = helper.create_variable_for_type_inference(dtype="float32")
+    top_k_indices = helper.create_variable_for_type_inference(dtype="int32")
+
+    outputs_dict["out"] = permute_input
+    outputs_dict["token_nums_per_expert"] = token_nums_per_expert
+    outputs_dict["scatter_index"] = scatter_index
+    outputs_dict["expert_scales_float"] = expert_scales_float
+    outputs_dict["expert_for_source_row_tensor"] = top_k_indices
+    
+    inputs = {"X":x}
+    inputs["gating_output"] = gate_out
+
+    helper.append_op(
+        type='moe_dispatch',
+        inputs=inputs,
+        attrs={
+            "moe_topk": topk,
+        },
+        outputs=outputs_dict,
+    )
+
+    return permute_input, token_nums_per_expert, scatter_index, expert_scales_float, top_k_indices
+
+def moe_ffn(X, rows_per_expert, ffn1_weight, ffn1_scale, ffn1_bias, ffn2_weight, ffn2_scale, quant_method):
+    if in_dynamic_mode():
+        return _C_ops.moe_ffn(X, rows_per_expert, ffn1_weight, ffn1_scale, ffn1_bias, ffn2_weight, ffn2_scale, quant_method)
+
+    helper = LayerHelper('moe_ffn', **locals())
+
+    outputs_dict = {}
+
+    out = helper.create_variable_for_type_inference(dtype=X.dtype)
+    outputs_dict["ffn_out"] = out
+
+    inputs = {"X":X}
+    inputs["rows_per_expert"] = rows_per_expert
+    inputs["ffn1_weight"] = ffn1_weight
+    inputs["ffn2_weight"] = ffn2_weight
+
+    if ffn1_scale is not None:
+        inputs["ffn1_scale"] = ffn1_scale
+    if ffn1_bias is not None:
+        inputs["ffn1_bias"] = ffn1_bias
+    if ffn2_scale is not None:
+        inputs["ffn2_scale"] = ffn2_scale
+    helper.append_op(
+        type='moe_ffn',
+        inputs=inputs,
+        attrs={
+            "quant_method": quant_method,
+        },
+        outputs=outputs_dict,
+    )
+
+    return out
+
+
+def moe_reduce(fc2_result, fc2_expert_biases, expert_scales_float, expanded_source_row_to_expanded_dest_row, topk_indices, norm_topk_prob):
+    if in_dynamic_mode():
+        return _C_ops.moe_reduce(fc2_result, fc2_expert_biases, expert_scales_float, expanded_source_row_to_expanded_dest_row, topk_indices, norm_topk_prob)
+    
+
+    helper = LayerHelper('moe_reduce', **locals())
+
+    outputs_dict = {}
+
+    output = helper.create_variable_for_type_inference(dtype=fc2_result.dtype)
+    outputs_dict["output"] = output
+
+    inputs = {"fc2_result":fc2_result}
+    if fc2_expert_biases is not None:
+        inputs["fc2_expert_biases"] = fc2_expert_biases
+    inputs["expert_scales_float"] = expert_scales_float
+    inputs["expanded_source_row_to_expanded_dest_row"] = expanded_source_row_to_expanded_dest_row
+    inputs["topk_indices"] = topk_indices
+
+    helper.append_op(
+        type='moe_reduce',
+        inputs=inputs,
+        attrs={
+            "norm_topk_prob": norm_topk_prob,
+        },
+        outputs=outputs_dict,
+    )
+
+    return output
+
+
+
+
+
