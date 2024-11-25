@@ -55,7 +55,7 @@ void MoeFFNKernel(const Context& ctx,
                     DenseTensor* ffn_out) {
   ffn_out->Resize(X.dims());
   auto* ffn_out_data = ctx.template Alloc<T>(ffn_out);
-  auto permuted_data_ = X.data<T>();
+  auto permuted_data = X.data<T>();
 
   auto fp16_moe_gemm_runner =
       MoeGemmRunner<typename phi::PDDataTypeTraits<T>::DataType,
@@ -81,7 +81,7 @@ void MoeFFNKernel(const Context& ctx,
     } else if (quant_method == "weight_only_int4") {
     } else {
       fp16_moe_gemm_runner.moe_gemm_bias_act(
-          reinterpret_cast<const NvType *>(permuted_data_),
+          reinterpret_cast<const NvType *>(permuted_data),
           reinterpret_cast<const NvType *>(ffn1_weight.data<T>()),
           nullptr,
           reinterpret_cast<const NvType *>(fc1_expert_biases),

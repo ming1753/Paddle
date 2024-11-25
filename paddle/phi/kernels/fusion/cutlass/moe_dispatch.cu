@@ -14,10 +14,10 @@
 
 
 #include "paddle/phi/kernels/fusion/cutlass/moe/fused_moe_helper.h"
-static inline size_t zkk_AlignTo16(const size_t& input) {
-  static constexpr int ALIGNMENT = 16;
-  return ALIGNMENT * ((input + ALIGNMENT - 1) / ALIGNMENT);
-}
+// static inline size_t zkk_AlignTo16(const size_t& input) {
+//   static constexpr int ALIGNMENT = 16;
+//   return ALIGNMENT * ((input + ALIGNMENT - 1) / ALIGNMENT);
+// }
 
 #pragma GCC diagnostic pop
 
@@ -30,19 +30,17 @@ void MoeDispatchKernel(const Context& ctx,
                     const DenseTensor& X,
                     const DenseTensor& gating_output,
                     const int moe_topk,
-
                     DenseTensor* out_feed_to_ffn,
                     DenseTensor* token_nums_per_expert,
                     DenseTensor* scatter_index,
                     DenseTensor* expert_scales_float,
-                    // 下面这个就是返回每个token的专家的索引！结果很清晰！
-                    DenseTensor* topk_expert_indices) {
+                    DenseTensor* topk_expert_indices) { // the index of the experts for each token
     
     const int num_rows = X.dims()[0];
     const int hidden_size = X.dims()[1];
     const int expert_num = gating_output.dims()[1];
 
-    // 这个变量表示每个token，含有moe_topk个数字，分别表示每个专家计算结果的加权系数！
+    // correspond to the weighted coefficients of the results from each expert.
     expert_scales_float->Resize({num_rows, moe_topk});
 
     DenseTensor finished_tensor = Empty<bool>(ctx, {num_rows});
@@ -51,8 +49,7 @@ void MoeDispatchKernel(const Context& ctx,
     funcs::SetConstant<GPUContext, bool> zero;
     zero(ctx, &finished_tensor, false);
     
-    
-    const int num_moe_inputs = zkk_AlignTo16(num_rows * moe_topk);  
+    const int num_moe_inputs = AlignTo16(num_rows * moe_topk);  
     const int bytes = num_moe_inputs * sizeof(int);
     DenseTensor ws_ptr_tensor = Empty<int8_t>(ctx, {bytes});
     int8_t *ws_ptr = ws_ptr_tensor.data<int8_t>();
@@ -62,12 +59,13 @@ void MoeDispatchKernel(const Context& ctx,
     topk_expert_indices->Resize({num_rows, moe_topk});
     int *expert_for_source_row = ctx.template Alloc<int>(topk_expert_indices);
 
-    DenseTensor tmp1 = Empty<float>(ctx, {num_rows * expert_num});
-    float *softmax_out_ = tmp1.data<float>();
+    DenseTensor softmax_buffer = Empty<float>(ctx, {num_rows * expert_num});
+    float *softmax_out_ = softmax_buffer.data<float>();
      
-    //std::cout << num_rows <<" "<<  expert_num << "  " << moe_topk <<  std::endl;
-    
-    // comment: _, expert_for_source_row = paddle.topk(gating_output, moe_topk, axis=-1)
+    VLOG(4) << "num_rows: " << num_rows 
+        << ", expert_num: " << expert_num 
+        << ", moe_topk: " << moe_topk;
+            
     topk_gating_softmax_kernelLauncher<float>(gating_output.data<float>(),
                                               finished,
                                               ctx.template Alloc<float>(expert_scales_float), // 每个token相对于每个专家的权重！
@@ -82,18 +80,18 @@ void MoeDispatchKernel(const Context& ctx,
 
     CubKeyValueSorter sorter_;
 
-    const int sorter_ws_size_bytes = zkk_AlignTo16(sorter_.getWorkspaceSize(moe_topk * num_rows));
+    const int sorter_ws_size_bytes = AlignTo16(sorter_.getWorkspaceSize(moe_topk * num_rows));
     DenseTensor sorter_ws = Empty<int8_t>(ctx, {sorter_ws_size_bytes});
     int8_t *sorter_ws_ptr = sorter_ws.data<int8_t>();
     
-    DenseTensor tmp = Empty<int32_t>(ctx, {num_moe_inputs * 2});
-    int *permuted_experts_ = tmp.data<int32_t>();
+    DenseTensor permutation_buffer = Empty<int32_t>(ctx, {num_moe_inputs * 2});
+    int *permuted_experts_ = permutation_buffer.data<int32_t>();
     int *permuted_rows_ = permuted_experts_ + num_moe_inputs;
 
     sorter_.run((void*)(sorter_ws_ptr),
                 sorter_ws_size_bytes,
-                expert_for_source_row, // in key【0，3，2】
-                permuted_experts_,   // out 每个专家也被重新排序了【0，0,0, 1,1,1,2,2,2,2，3,3,3,3】这样的！
+                expert_for_source_row,
+                permuted_experts_,
                 source_rows_,        
                 permuted_rows_,
                 moe_topk * num_rows,
@@ -106,8 +104,8 @@ void MoeDispatchKernel(const Context& ctx,
     initialize_moe_routing_kernelLauncher(
         X.data<T>(),
         ctx.template Alloc<T>(out_feed_to_ffn),
-        permuted_rows_, // 每个专家需要收集的数据吧！
-        ctx.template Alloc<int32_t>(scatter_index), // output 这个就是scatter_index ba !
+        permuted_rows_,
+        ctx.template Alloc<int32_t>(scatter_index),
         num_rows,
         num_rows,
         hidden_size,

@@ -50,7 +50,7 @@ template <typename T, typename Context>
 void MoeReduceKernel(const Context& ctx,
                     const DenseTensor& fc2_result,  // ffn output [num_rows * topk, hidden_dim]
                     const paddle::optional<DenseTensor>& fc2_expert_biases, 
-                    const DenseTensor& expert_scales_float, // 对于每个token来说，不同专家对他的weight
+                    const DenseTensor& expert_scales_float, // The weights of different experts for each token.
                     const DenseTensor& expanded_source_row_to_expanded_dest_row,
                     const DenseTensor& topk_indices,
                     const bool norm_topk_prob,
