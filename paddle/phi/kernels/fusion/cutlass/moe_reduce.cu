@@ -1,15 +1,11 @@
-
-
-
-
 // Copyright (c) 2024 PaddlePaddle Authors. All Rights Reserved.
-
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -47,33 +43,34 @@ namespace phi {
 namespace fusion {
 
 template <typename T, typename Context>
-void MoeReduceKernel(const Context& ctx,
-                    const DenseTensor& fc2_result,  // ffn output [num_rows * topk, hidden_dim]
-                    const paddle::optional<DenseTensor>& fc2_expert_biases, 
-                    const DenseTensor& expert_scales_float, // The weights of different experts for each token.
-                    const DenseTensor& expanded_source_row_to_expanded_dest_row,
-                    const DenseTensor& topk_indices,
-                    const bool norm_topk_prob,
-                    DenseTensor* output) {
-      
-      const int topk = topk_indices.dims()[1];
-      const int num_rows = fc2_result.dims()[0] / topk;
-      const int hidden_size = fc2_result.dims()[1];
-      output->Resize({num_rows, hidden_size});
+void MoeReduceKernel(
+    const Context& ctx,
+    const DenseTensor& fc2_result,  // ffn output [num_rows * topk, hidden_dim]
+    const paddle::optional<DenseTensor>& fc2_expert_biases,
+    const DenseTensor& expert_scales_float,  // The weights of different experts
+                                             // for each token.
+    const DenseTensor& expanded_source_row_to_expanded_dest_row,
+    const DenseTensor& topk_indices,
+    const bool norm_topk_prob,
+    DenseTensor* output) {
+  const int topk = topk_indices.dims()[1];
+  const int num_rows = fc2_result.dims()[0] / topk;
+  const int hidden_size = fc2_result.dims()[1];
+  output->Resize({num_rows, hidden_size});
 
-      finalize_moe_routing_kernelLauncher(
-          fc2_result.data<T>(),
-          ctx.template Alloc<T>(output),
-          fc2_expert_biases ? fc2_expert_biases->data<T>() : nullptr,
-          expert_scales_float.data<float>(),
-          expanded_source_row_to_expanded_dest_row.data<int32_t>(),
-          topk_indices.data<int>(),
-          num_rows,
-          hidden_size,
-          topk,
-          static_cast<int>(1),
-          norm_topk_prob,
-          ctx.stream());
+  finalize_moe_routing_kernelLauncher(
+      fc2_result.data<T>(),
+      ctx.template Alloc<T>(output),
+      fc2_expert_biases ? fc2_expert_biases->data<T>() : nullptr,
+      expert_scales_float.data<float>(),
+      expanded_source_row_to_expanded_dest_row.data<int32_t>(),
+      topk_indices.data<int>(),
+      num_rows,
+      hidden_size,
+      topk,
+      static_cast<int>(1),
+      norm_topk_prob,
+      ctx.stream());
 }
 
 }  // namespace fusion

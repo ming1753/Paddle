@@ -171,7 +171,8 @@ class MoeHelper {
     const int k = moe_topk;
 
     VLOG(4) << "num_rows: " << num_rows << "   " << hidden_size << "   "
-            << inter_size << "    " << num_experts << "k " << k;
+            << inter_size << "    " << num_experts << "k " << k
+            << " group_moe: " << group_moe;
 
     DenseTensor gate_tensor = Empty<float>(ctx, {num_rows, num_experts});
     DenseTensor X_tensor = Empty<float>(ctx, {num_rows, hidden_size});
@@ -233,7 +234,8 @@ class MoeHelper {
     DenseTensor fc1_out_tensor = Empty<T>(ctx, {num_rows * k, inter_size});
     T *fc1_out = fc1_out_tensor.data<T>();
 
-    VLOG(4) << " gemm method is :" << gemm_method_<< ". group_moe is :"<< group_moe;
+    VLOG(4) << " gemm method is :" << gemm_method_
+            << ". group_moe is :" << group_moe;
 
     DenseTensor mixgemm_workspace;
     auto gate_compute = GEMMHelper<float>(
@@ -265,6 +267,7 @@ class MoeHelper {
                                               finished,
                                               expert_scales_float,
                                               softmax_out_,
+                                              nullptr,
                                               expert_for_source_row,
                                               source_rows_,
                                               num_rows,
@@ -420,7 +423,7 @@ class MoeHelper {
           hidden_size,
           k,
           static_cast<int>(1),
-          norm_topk_prob,          
+          norm_topk_prob,
           ctx.stream());
     } else {
       finalize_moe_routing_kernelLauncher(

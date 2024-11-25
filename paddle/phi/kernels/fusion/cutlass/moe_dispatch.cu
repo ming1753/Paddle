@@ -1,3 +1,17 @@
+// Copyright (c) 2024 PaddlePaddle Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #include "paddle/phi/backends/gpu/gpu_context.h"
 #include "paddle/phi/common/bfloat16.h"
 #include "paddle/phi/common/datatype_traits.h"
@@ -12,12 +26,7 @@
 
 #include "paddle/phi/backends/gpu/gpu_info.h"
 
-
 #include "paddle/phi/kernels/fusion/cutlass/moe/fused_moe_helper.h"
-// static inline size_t zkk_AlignTo16(const size_t& input) {
-//   static constexpr int ALIGNMENT = 16;
-//   return ALIGNMENT * ((input + ALIGNMENT - 1) / ALIGNMENT);
-// }
 
 #pragma GCC diagnostic pop
 
@@ -26,100 +35,112 @@ namespace phi {
 namespace fusion {
 
 template <typename T, typename Context>
-void MoeDispatchKernel(const Context& ctx,
-                    const DenseTensor& X,
-                    const DenseTensor& gating_output,
-                    const int moe_topk,
-                    DenseTensor* out_feed_to_ffn,
-                    DenseTensor* token_nums_per_expert,
-                    DenseTensor* scatter_index,
-                    DenseTensor* expert_scales_float,
-                    DenseTensor* topk_expert_indices) { // the index of the experts for each token
-    
-    const int num_rows = X.dims()[0];
-    const int hidden_size = X.dims()[1];
-    const int expert_num = gating_output.dims()[1];
+void MoeDispatchKernel(
+    const Context& ctx,
+    const DenseTensor& X,
+    const DenseTensor& gating_output,
+    const int moe_topk,
+    const bool group_moe,
+    DenseTensor* out_feed_to_ffn,
+    DenseTensor* token_nums_per_expert,
+    DenseTensor* scatter_index,
+    DenseTensor* expert_scales_float,
+    DenseTensor*
+        topk_expert_indices,  // the index of the experts for each token
+    DenseTensor* group_max_prob) {
+  PADDLE_ENFORCE_EQ(
+      X.dims().size(),
+      2,
+      common::errors::InvalidArgument("the input X should be a 2D tensor"));
+  const int num_rows = X.dims()[0];
+  const int hidden_size = X.dims()[1];
+  const int expert_num = gating_output.dims()[1];
 
-    // correspond to the weighted coefficients of the results from each expert.
-    expert_scales_float->Resize({num_rows, moe_topk});
+  // correspond to the weighted coefficients of the results from each expert.
+  expert_scales_float->Resize({num_rows, moe_topk});
 
-    DenseTensor finished_tensor = Empty<bool>(ctx, {num_rows});
-    bool *finished = finished_tensor.data<bool>();
-    // set false
-    funcs::SetConstant<GPUContext, bool> zero;
-    zero(ctx, &finished_tensor, false);
-    
-    const int num_moe_inputs = AlignTo16(num_rows * moe_topk);  
-    const int bytes = num_moe_inputs * sizeof(int);
-    DenseTensor ws_ptr_tensor = Empty<int8_t>(ctx, {bytes});
-    int8_t *ws_ptr = ws_ptr_tensor.data<int8_t>();
-    int *source_rows_ = reinterpret_cast<int *>(ws_ptr);
-    
+  DenseTensor finished_tensor = Empty<bool>(ctx, {num_rows});
+  bool* finished = finished_tensor.data<bool>();
+  // set false
+  funcs::SetConstant<GPUContext, bool> zero;
+  zero(ctx, &finished_tensor, false);
 
-    topk_expert_indices->Resize({num_rows, moe_topk});
-    int *expert_for_source_row = ctx.template Alloc<int>(topk_expert_indices);
+  const int num_moe_inputs = AlignTo16(num_rows * moe_topk);
+  const int bytes = num_moe_inputs * sizeof(int);
+  DenseTensor ws_ptr_tensor = Empty<int8_t>(ctx, {bytes});
+  int8_t* ws_ptr = ws_ptr_tensor.data<int8_t>();
+  int* source_rows_ = reinterpret_cast<int*>(ws_ptr);
 
-    DenseTensor softmax_buffer = Empty<float>(ctx, {num_rows * expert_num});
-    float *softmax_out_ = softmax_buffer.data<float>();
-     
-    VLOG(4) << "num_rows: " << num_rows 
-        << ", expert_num: " << expert_num 
-        << ", moe_topk: " << moe_topk;
-            
-    topk_gating_softmax_kernelLauncher<float>(gating_output.data<float>(),
-                                              finished,
-                                              ctx.template Alloc<float>(expert_scales_float), // 每个token相对于每个专家的权重！
-                                              softmax_out_, // 这个是个临时空间，我先在不给他！
-                                              expert_for_source_row, // 每个token的专家的索引！我要把这么多数据按照专家来排个序！
-                                              source_rows_, // 这个是个输出，我理解就是每个专家的需要取的数据吧！,我觉得这个就是0，0，0，0, 0,1,1,1,1,。。512,吧！
-                                              num_rows,
-                                              expert_num,
-                                              moe_topk,
-                                              false,
-                                              ctx.stream());
+  topk_expert_indices->Resize({num_rows, moe_topk});
+  int* expert_for_source_row = ctx.template Alloc<int>(topk_expert_indices);
 
-    CubKeyValueSorter sorter_;
+  group_max_prob->Resize({num_rows, moe_topk});
+  float* group_max_out = ctx.template Alloc<float>(group_max_prob);
 
-    const int sorter_ws_size_bytes = AlignTo16(sorter_.getWorkspaceSize(moe_topk * num_rows));
-    DenseTensor sorter_ws = Empty<int8_t>(ctx, {sorter_ws_size_bytes});
-    int8_t *sorter_ws_ptr = sorter_ws.data<int8_t>();
-    
-    DenseTensor permutation_buffer = Empty<int32_t>(ctx, {num_moe_inputs * 2});
-    int *permuted_experts_ = permutation_buffer.data<int32_t>();
-    int *permuted_rows_ = permuted_experts_ + num_moe_inputs;
+  DenseTensor softmax_buffer = Empty<float>(ctx, {num_rows * expert_num});
+  float* softmax_out_ = softmax_buffer.data<float>();
 
-    sorter_.run((void*)(sorter_ws_ptr),
-                sorter_ws_size_bytes,
-                expert_for_source_row,
-                permuted_experts_,
-                source_rows_,        
-                permuted_rows_,
-                moe_topk * num_rows,
-                false,
-                ctx.stream());
-    
-    out_feed_to_ffn->Resize({moe_topk * num_rows, hidden_size});
-    scatter_index->Resize({moe_topk, num_rows});
+  VLOG(4) << "num_rows: " << num_rows << ", expert_num: " << expert_num
+          << ", moe_topk: " << moe_topk << ", group_moe: " << group_moe;
 
-    initialize_moe_routing_kernelLauncher(
-        X.data<T>(),
-        ctx.template Alloc<T>(out_feed_to_ffn),
-        permuted_rows_,
-        ctx.template Alloc<int32_t>(scatter_index),
-        num_rows,
-        num_rows,
-        hidden_size,
-        moe_topk,
-        ctx.stream());
-    
-    token_nums_per_expert->Resize({expert_num});
+  topk_gating_softmax_kernelLauncher<float>(
+      gating_output.data<float>(),
+      finished,
+      ctx.template Alloc<float>(expert_scales_float),
+      softmax_out_,
+      group_max_out,
+      expert_for_source_row,
+      source_rows_,
+      num_rows,
+      expert_num,
+      moe_topk,
+      group_moe,
+      ctx.stream());
 
-    compute_total_rows_before_expert<T>(permuted_experts_,
-                                        X.data<T>(),
-                                        moe_topk * num_rows,
-                                        expert_num,
-                                        ctx.template Alloc<int64_t>(token_nums_per_expert),
-                                        ctx.stream());
+  CubKeyValueSorter sorter_;
+
+  const int sorter_ws_size_bytes =
+      AlignTo16(sorter_.getWorkspaceSize(moe_topk * num_rows));
+  DenseTensor sorter_ws = Empty<int8_t>(ctx, {sorter_ws_size_bytes});
+  int8_t* sorter_ws_ptr = sorter_ws.data<int8_t>();
+
+  DenseTensor permutation_buffer = Empty<int32_t>(ctx, {num_moe_inputs * 2});
+  int* permuted_experts_ = permutation_buffer.data<int32_t>();
+  int* permuted_rows_ = permuted_experts_ + num_moe_inputs;
+
+  sorter_.run(reinterpret_cast<void*>(sorter_ws_ptr),
+              sorter_ws_size_bytes,
+              expert_for_source_row,
+              permuted_experts_,
+              source_rows_,
+              permuted_rows_,
+              moe_topk * num_rows,
+              false,
+              ctx.stream());
+
+  out_feed_to_ffn->Resize({moe_topk * num_rows, hidden_size});
+  scatter_index->Resize({moe_topk, num_rows});
+
+  initialize_moe_routing_kernelLauncher(
+      X.data<T>(),
+      ctx.template Alloc<T>(out_feed_to_ffn),
+      permuted_rows_,
+      ctx.template Alloc<int32_t>(scatter_index),
+      num_rows,
+      num_rows,
+      hidden_size,
+      moe_topk,
+      ctx.stream());
+
+  token_nums_per_expert->Resize({expert_num});
+
+  compute_total_rows_before_expert<T>(
+      permuted_experts_,
+      X.data<T>(),
+      moe_topk * num_rows,
+      expert_num,
+      ctx.template Alloc<int64_t>(token_nums_per_expert),
+      ctx.stream());
 }
 
 }  // namespace fusion

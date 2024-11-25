@@ -44,15 +44,15 @@ namespace fusion {
 
 template <typename T, typename Context>
 void MoeFFNKernel(const Context& ctx,
-                    const DenseTensor& X,
-                    const DenseTensor& rows_per_expert,
-                    const DenseTensor& ffn1_weight,
-                    const paddle::optional<DenseTensor>& ffn1_scale,
-                    const paddle::optional<DenseTensor>& ffn1_bias,
-                    const DenseTensor& ffn2_weight,
-                    const paddle::optional<DenseTensor>& ffn2_scale,
-                    const std::string& quant_method,
-                    DenseTensor* ffn_out) {
+                  const DenseTensor& X,
+                  const DenseTensor& rows_per_expert,
+                  const DenseTensor& ffn1_weight,
+                  const paddle::optional<DenseTensor>& ffn1_scale,
+                  const paddle::optional<DenseTensor>& ffn1_bias,
+                  const DenseTensor& ffn2_weight,
+                  const paddle::optional<DenseTensor>& ffn2_scale,
+                  const std::string& quant_method,
+                  DenseTensor* ffn_out) {
   ffn_out->Resize(X.dims());
   auto* ffn_out_data = ctx.template Alloc<T>(ffn_out);
   auto permuted_data = X.data<T>();
@@ -65,64 +65,61 @@ void MoeFFNKernel(const Context& ctx,
   auto int4_moe_gemm_runner =
       MoeGemmRunner<typename phi::PDDataTypeTraits<T>::DataType,
                     cutlass::uint4b_t>();
-    
 
-    const int64_t expanded_active_expert_rows = X.dims()[0];
-    const int num_experts = ffn1_weight.dims()[0];
-    const int hidden_size = ffn1_weight.dims()[1];
-    const int inter_size = ffn1_weight.dims()[2];
-    DenseTensor fc1_out_tensor = Empty<T>(ctx, {expanded_active_expert_rows, inter_size});
-    T *fc1_out = fc1_out_tensor.data<T>();
-    using NvType = typename phi::PDDataTypeTraits<T>::DataType;
+  const int64_t expanded_active_expert_rows = X.dims()[0];
+  const int num_experts = ffn1_weight.dims()[0];
+  const int hidden_size = ffn1_weight.dims()[1];
+  const int inter_size = ffn1_weight.dims()[2];
+  DenseTensor fc1_out_tensor =
+      Empty<T>(ctx, {expanded_active_expert_rows, inter_size});
+  T* fc1_out = fc1_out_tensor.data<T>();
+  using NvType = typename phi::PDDataTypeTraits<T>::DataType;
 
-    const T *fc1_expert_biases = ffn1_bias ? ffn1_bias->data<T>() : nullptr;
+  const T* fc1_expert_biases = ffn1_bias ? ffn1_bias->data<T>() : nullptr;
 
-    if (quant_method == "weight_only_int8") {
-    } else if (quant_method == "weight_only_int4") {
-    } else {
-      fp16_moe_gemm_runner.moe_gemm_bias_act(
-          reinterpret_cast<const NvType *>(permuted_data),
-          reinterpret_cast<const NvType *>(ffn1_weight.data<T>()),
-          nullptr,
-          reinterpret_cast<const NvType *>(fc1_expert_biases),
-          reinterpret_cast<NvType *>(fc1_out),
-          (int64_t*)rows_per_expert.data<int64_t>(),
-          expanded_active_expert_rows,
-          inter_size,
-          hidden_size,
-          num_experts,
-          "none",
-          ctx.stream());
-    }
-    
-    const int num_rows = expanded_active_expert_rows;
-    
-      DenseTensor act_out_tensor =
-          Empty<T>(ctx, {num_rows, inter_size / 2});
-      T *act_out = act_out_tensor.data<T>();
+  if (quant_method == "weight_only_int8") {
+  } else if (quant_method == "weight_only_int4") {
+  } else {
+    fp16_moe_gemm_runner.moe_gemm_bias_act(
+        reinterpret_cast<const NvType*>(permuted_data),
+        reinterpret_cast<const NvType*>(ffn1_weight.data<T>()),
+        nullptr,
+        reinterpret_cast<const NvType*>(fc1_expert_biases),
+        reinterpret_cast<NvType*>(fc1_out),
+        const_cast<int64_t*>(rows_per_expert.data<int64_t>()),
+        expanded_active_expert_rows,
+        inter_size,
+        hidden_size,
+        num_experts,
+        "none",
+        ctx.stream());
+  }
 
-      const std::string act_type = "swiglu";
-      auto bias_act_helper =
-          BiasActHelper<T>(ctx, act_type, num_rows, inter_size);
+  const int num_rows = expanded_active_expert_rows;
 
-      bias_act_helper.Compute(&fc1_out_tensor, nullptr, &act_out_tensor);
+  DenseTensor act_out_tensor = Empty<T>(ctx, {num_rows, inter_size / 2});
+  T* act_out = act_out_tensor.data<T>();
 
-      if (quant_method == "weight_only_int8") {
-      } else if (quant_method == "weight_only_int4") {
-      } else {
-        fp16_moe_gemm_runner.moe_gemm(
-            reinterpret_cast<NvType *>(act_out),
-            reinterpret_cast<const NvType *>(ffn2_weight.data<T>()),
-            nullptr,
-            reinterpret_cast<NvType *>(ffn_out_data),
-            (int64_t*)rows_per_expert.data<int64_t>(),
-            expanded_active_expert_rows,
-            hidden_size,
-            inter_size / 2,
-            num_experts,
-            ctx.stream());
-      }
+  const std::string act_type = "swiglu";
+  auto bias_act_helper = BiasActHelper<T>(ctx, act_type, num_rows, inter_size);
 
+  bias_act_helper.Compute(&fc1_out_tensor, nullptr, &act_out_tensor);
+
+  if (quant_method == "weight_only_int8") {
+  } else if (quant_method == "weight_only_int4") {
+  } else {
+    fp16_moe_gemm_runner.moe_gemm(
+        reinterpret_cast<NvType*>(act_out),
+        reinterpret_cast<const NvType*>(ffn2_weight.data<T>()),
+        nullptr,
+        reinterpret_cast<NvType*>(ffn_out_data),
+        const_cast<int64_t*>(rows_per_expert.data<int64_t>()),
+        expanded_active_expert_rows,
+        hidden_size,
+        inter_size / 2,
+        num_experts,
+        ctx.stream());
+  }
 }
 
 }  // namespace fusion
@@ -136,9 +133,6 @@ PD_REGISTER_KERNEL(moe_ffn,
                    phi::dtype::float16,
                    phi::dtype::bfloat16) {}
 #else
-PD_REGISTER_KERNEL(moe_ffn,
-                   GPU,
-                   ALL_LAYOUT,
-                   phi::fusion::MoeFFNKernel,
-                   phi::dtype::float16) {}
+PD_REGISTER_KERNEL(
+    moe_ffn, GPU, ALL_LAYOUT, phi::fusion::MoeFFNKernel, phi::dtype::float16) {}
 #endif
