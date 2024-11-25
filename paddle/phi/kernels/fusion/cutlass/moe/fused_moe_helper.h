@@ -131,11 +131,8 @@ class MoeHelper {
                   const DenseTensor *ffn2_scale,
                   const DenseTensor *ffn2_bias,
                   const DenseTensor *moe_token_type_ids,
-                  // const phi::DenseTensor *shared_out, //是否改为可选的
                   const int moe_topk,
-                  // const int moe_num_shared_experts,
                   const bool group_moe,
-                  // const int token_num,
                   const bool norm_topk_prob,
                   const std::string moe_type,
                   DenseTensor *output) {
@@ -233,17 +230,10 @@ class MoeHelper {
     DenseTensor expert_scales_tensor_float = Empty<float>(ctx, {num_rows, k});
     float *expert_scales_float = expert_scales_tensor_float.data<float>();
 
-
-    DenseTensor softmax_max_prob_tensor =
-        Empty<float>(ctx, {num_rows, k});
-    float *softmax_max_prob = softmax_max_prob_tensor.data<float>();
-    funcs::SetConstant<GPUContext, float> zero_float;
-    zero_float(ctx, &softmax_max_prob_tensor, false);
-
     DenseTensor fc1_out_tensor = Empty<T>(ctx, {num_rows * k, inter_size});
     T *fc1_out = fc1_out_tensor.data<T>();
 
-    VLOG(4) << " gemm_method_ :" << gemm_method_<<"   group_moe  "<< group_moe;
+    VLOG(4) << " gemm method is :" << gemm_method_<< ". group_moe is :"<< group_moe;
 
     DenseTensor mixgemm_workspace;
     auto gate_compute = GEMMHelper<float>(
@@ -260,16 +250,16 @@ class MoeHelper {
 
     float *gating_output = gate_tensor.data<float>();
 
-    // if (moe_token_type_ids) {
-    //   VLOG(4) << "moe_token_type_ids is on";
-    //   auto *moe_token_type_ids_out = moe_token_type_ids->data<int>();
-    //   moe_token_type_ids_kernelLauncher<float>(gating_output,
-    //                                            moe_token_type_ids_out,
-    //                                            num_rows,
-    //                                            num_experts,
-    //                                            k,
-    //                                            ctx.stream());
-    // }
+    if (moe_token_type_ids) {
+      VLOG(4) << "moe_token_type_ids is on";
+      auto *moe_token_type_ids_out = moe_token_type_ids->data<int>();
+      moe_token_type_ids_kernelLauncher<float>(gating_output,
+                                               moe_token_type_ids_out,
+                                               num_rows,
+                                               num_experts,
+                                               k,
+                                               ctx.stream());
+    }
 
     topk_gating_softmax_kernelLauncher<float>(gating_output,
                                               finished,
@@ -277,7 +267,6 @@ class MoeHelper {
                                               softmax_out_,
                                               expert_for_source_row,
                                               source_rows_,
-                                              softmax_max_prob,
                                               num_rows,
                                               num_experts,
                                               k,
@@ -422,7 +411,6 @@ class MoeHelper {
 
       finalize_moe_routing_kernelLauncher(
           fc2_result,
-          // moe_num_shared_experts > 0 ? shared_out->data<T>() : nullptr,
           output_,
           fc2_expert_biases,
           reinterpret_cast<float *>(expert_scales_float),
@@ -432,14 +420,12 @@ class MoeHelper {
           hidden_size,
           k,
           static_cast<int>(1),
-          norm_topk_prob,
-          // moe_num_shared_experts,
+          norm_topk_prob,          
           ctx.stream());
     } else {
       finalize_moe_routing_kernelLauncher(
           // fc2_result,
           fc1_out,
-          // moe_num_shared_experts > 0 ? shared_out->data<T>() : nullptr,
           output_,
           fc1_expert_biases,  // fc2_expert_biases,
           reinterpret_cast<float *>(expert_scales_float),
@@ -450,7 +436,6 @@ class MoeHelper {
           k,
           static_cast<int>(0),
           norm_topk_prob,
-          // moe_num_shared_experts,
           ctx.stream());
     }
     VLOG(4) << " Finished EXPERT \n";

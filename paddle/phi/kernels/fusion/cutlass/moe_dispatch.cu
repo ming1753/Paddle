@@ -74,7 +74,6 @@ void MoeDispatchKernel(const Context& ctx,
                                               softmax_out_, // 这个是个临时空间，我先在不给他！
                                               expert_for_source_row, // 每个token的专家的索引！我要把这么多数据按照专家来排个序！
                                               source_rows_, // 这个是个输出，我理解就是每个专家的需要取的数据吧！,我觉得这个就是0，0，0，0, 0,1,1,1,1,。。512,吧！
-                                              nullptr,
                                               num_rows,
                                               expert_num,
                                               moe_topk,
