@@ -35,19 +35,17 @@ namespace phi {
 namespace fusion {
 
 template <typename T, typename Context>
-void MoeDispatchKernel(
-    const Context& ctx,
-    const DenseTensor& X,
-    const DenseTensor& gating_output,
-    const int moe_topk,
-    const bool group_moe,
-    DenseTensor* out_feed_to_ffn,
-    DenseTensor* token_nums_per_expert,
-    DenseTensor* scatter_index,
-    DenseTensor* expert_scales_float,
-    DenseTensor*
-        topk_expert_indices,  // the index of the experts for each token
-    DenseTensor* group_max_prob) {
+void MoeDispatchKernel(const Context& ctx,
+                       const DenseTensor& X,
+                       const DenseTensor& gating_output,
+                       const int moe_topk,
+                       const bool group_moe,
+                       DenseTensor* permute_input,
+                       DenseTensor* token_nums_per_expert,
+                       DenseTensor* scatter_index,
+                       DenseTensor* expert_scales_float,
+                       DenseTensor* top_k_indices,
+                       DenseTensor* group_max_prob) {
   PADDLE_ENFORCE_EQ(
       X.dims().size(),
       2,
@@ -71,8 +69,8 @@ void MoeDispatchKernel(
   int8_t* ws_ptr = ws_ptr_tensor.data<int8_t>();
   int* source_rows_ = reinterpret_cast<int*>(ws_ptr);
 
-  topk_expert_indices->Resize({num_rows, moe_topk});
-  int* expert_for_source_row = ctx.template Alloc<int>(topk_expert_indices);
+  top_k_indices->Resize({num_rows, moe_topk});
+  int* expert_for_source_row = ctx.template Alloc<int>(top_k_indices);
 
   group_max_prob->Resize({num_rows, moe_topk});
   float* group_max_out = ctx.template Alloc<float>(group_max_prob);
@@ -118,12 +116,12 @@ void MoeDispatchKernel(
               false,
               ctx.stream());
 
-  out_feed_to_ffn->Resize({moe_topk * num_rows, hidden_size});
+  permute_input->Resize({moe_topk * num_rows, hidden_size});
   scatter_index->Resize({moe_topk, num_rows});
 
   initialize_moe_routing_kernelLauncher(
       X.data<T>(),
-      ctx.template Alloc<T>(out_feed_to_ffn),
+      ctx.template Alloc<T>(permute_input),
       permuted_rows_,
       ctx.template Alloc<int32_t>(scatter_index),
       num_rows,

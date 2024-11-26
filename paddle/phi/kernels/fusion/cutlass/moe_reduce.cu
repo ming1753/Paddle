@@ -43,28 +43,26 @@ namespace phi {
 namespace fusion {
 
 template <typename T, typename Context>
-void MoeReduceKernel(
-    const Context& ctx,
-    const DenseTensor& fc2_result,  // ffn output [num_rows * topk, hidden_dim]
-    const paddle::optional<DenseTensor>& fc2_expert_biases,
-    const DenseTensor& expert_scales_float,  // The weights of different experts
-                                             // for each token.
-    const DenseTensor& expanded_source_row_to_expanded_dest_row,
-    const DenseTensor& topk_indices,
-    const bool norm_topk_prob,
-    DenseTensor* output) {
-  const int topk = topk_indices.dims()[1];
-  const int num_rows = fc2_result.dims()[0] / topk;
-  const int hidden_size = fc2_result.dims()[1];
+void MoeReduceKernel(const Context& ctx,
+                     const DenseTensor& ffn_out,
+                     const DenseTensor& expert_scales_float,
+                     const DenseTensor& scatter_index,
+                     const DenseTensor& top_k_indices,
+                     const paddle::optional<DenseTensor>& ffn2_bias,
+                     const bool norm_topk_prob,
+                     DenseTensor* output) {
+  const int topk = top_k_indices.dims()[1];
+  const int num_rows = ffn_out.dims()[0] / topk;
+  const int hidden_size = ffn_out.dims()[1];
   output->Resize({num_rows, hidden_size});
 
   finalize_moe_routing_kernelLauncher(
-      fc2_result.data<T>(),
+      ffn_out.data<T>(),
       ctx.template Alloc<T>(output),
-      fc2_expert_biases ? fc2_expert_biases->data<T>() : nullptr,
+      ffn2_bias ? ffn2_bias->data<T>() : nullptr,
       expert_scales_float.data<float>(),
-      expanded_source_row_to_expanded_dest_row.data<int32_t>(),
-      topk_indices.data<int>(),
+      scatter_index.data<int32_t>(),
+      top_k_indices.data<int>(),
       num_rows,
       hidden_size,
       topk,

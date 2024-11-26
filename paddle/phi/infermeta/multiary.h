@@ -1171,31 +1171,30 @@ void moe_dispatchInferMeta(const MetaTensor& X,
                            const MetaTensor& gating_output,
                            const int moe_topk,
                            const bool group_moe,
-                           MetaTensor* out,
+                           MetaTensor* permute_input,
                            MetaTensor* token_nums_per_expert,
                            MetaTensor* scatter_index,
                            MetaTensor* expert_scales_float,
-                           MetaTensor* expert_for_source_row_tensor,
+                           MetaTensor* top_k_indices,
                            MetaTensor* group_max_prob);
 
-void moe_ffnInferMeta(const MetaTensor& X,
-                      const MetaTensor& rows_per_expert,
+void moe_ffnInferMeta(const MetaTensor& permute_input,
+                      const MetaTensor& token_nums_per_expert,
                       const MetaTensor& ffn1_weight,
-                      const MetaTensor& ffn1_scale,
-                      const MetaTensor& ffn1_bias,
                       const MetaTensor& ffn2_weight,
+                      const MetaTensor& ffn1_bias,
+                      const MetaTensor& ffn1_scale,
                       const MetaTensor& ffn2_scale,
                       const std::string& quant_method,
                       MetaTensor* ffn_out);
 
-void moe_reduceInferMeta(
-    const MetaTensor& fc2_result,  // ffn output [num_rows * topk, hidden_dim]
-    const MetaTensor& fc2_expert_biases,
-    const MetaTensor& expert_scales_float,
-    const MetaTensor& expanded_source_row_to_expanded_dest_row,
-    const MetaTensor& topk_indices,
-    const bool norm_topk_prob,
-    MetaTensor* output);
+void moe_reduceInferMeta(const MetaTensor& ffn_out,
+                         const MetaTensor& expert_scales_float,
+                         const MetaTensor& scatter_index,
+                         const MetaTensor& top_k_indices,
+                         const MetaTensor& ffn2_bias,
+                         const bool norm_topk_prob,
+                         MetaTensor* output);
 
 void FusedMultiHeadAttentionInferMeta(const MetaTensor& query,
                                       const MetaTensor& key,

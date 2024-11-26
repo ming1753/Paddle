@@ -291,11 +291,8 @@ class TestFusedGoupeMoEOp(TestFusedMoEOp):
             permute_input,
             token_nums_per_expert,
             self.bmm_w0,
-            None,
-            self.bmm_b0,
             self.bmm_w1,
-            None,
-            "None",
+            self.bmm_b0,
         )
 
         # Compute normalized expert scales
@@ -307,11 +304,10 @@ class TestFusedGoupeMoEOp(TestFusedMoEOp):
         # Reduce results back to the original token order
         final_out = moe_reduce(
             ffn_out,
-            self.bmm_b1,
             expert_scales_float,
             scatter_index,
             top_k_indices,
-            False,
+            self.bmm_b1,
         )
         return final_out
 

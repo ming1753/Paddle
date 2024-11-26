@@ -12,25 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from paddle import _C_ops
 from paddle.base.layer_helper import LayerHelper
 from paddle.framework import in_dynamic_or_pir_mode
 
+if TYPE_CHECKING:
+    from paddle import Tensor
+
 
 def fused_moe(
-    x,
-    gate_weight,
-    ffn1_weight,
-    ffn2_weight,
-    ffn1_bias=None,
-    ffn1_scale=None,
-    ffn2_bias=None,
-    ffn2_scale=None,
-    quant_method="None",
-    moe_topk=2,
-    norm_topk_prob=True,
-    group_moe=False,
-):
+    x: Tensor,
+    gate_weight: Tensor,
+    ffn1_weight: Tensor,
+    ffn2_weight: Tensor,
+    ffn1_bias: Tensor | None = None,
+    ffn1_scale: Tensor | None = None,
+    ffn2_bias: Tensor | None = None,
+    ffn2_scale: Tensor | None = None,
+    quant_method: str = "None",
+    moe_topk: int = 2,
+    norm_topk_prob: bool = True,
+    group_moe: bool = False,
+) -> Tensor:
     """
     Applies fused moe kernel.
     This method requires SM_ARCH in sm75, sm80, sm86.
@@ -46,7 +53,7 @@ def fused_moe(
         ffn2_scale (Tensor, optional): the input scale Tensor Provided to weight for dequantization. Its shape is [num_experts, d_model].
         quant_method (string): Currently not supported.
         moe_topk (int): Select the top k experts for each token.
-        norm_topk_prob (bool): Whether to normalize the topk probabilities.
+        norm_topk_prob (bool): Whether to normalize the moe_topk probabilities.
 
     Returns:
         Tensor: the output Tensor.
@@ -122,7 +129,12 @@ def fused_moe(
         return final_out
 
 
-def moe_dispatch(x, gate_out, topk, group_moe=True):
+def moe_dispatch(
+    x: Tensor,
+    gating_output: Tensor,
+    moe_topk: int,
+    group_moe: bool = True,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     """
     Dispatches tokens to experts based on gating probabilities.
 
@@ -131,8 +143,8 @@ def moe_dispatch(x, gate_out, topk, group_moe=True):
 
     Args:
         x (Tensor): The input tensor with shape `[batch_size * seq_len, d_model]`.
-        gate_out (Tensor): The gating output probabilities with shape `[batch_size * seq_len, num_experts]`.
-        topk (int): The number of top experts to select for each token.
+        gating_output (Tensor): The gating output probabilities with shape `[batch_size * seq_len, num_experts]`.
+        moe_topk (int): The number of top experts to select for each token.
         group_moe (bool, optional): Whether to use group MoE. Default is `True`.
 
     Returns:
@@ -151,8 +163,8 @@ def moe_dispatch(x, gate_out, topk, group_moe=True):
             >>> from paddle.incubate.nn.functional import moe_dispatch
 
             >>> x = paddle.randn([1280, 768]) # 1280 = bs * 128
-            >>> gate_out = paddle.rand([1280, 48])
-            >>> topk = 6
+            >>> gating_output = paddle.rand([1280, 48])
+            >>> moe_topk = 6
             >>> (
             ...     permute_input,
             ...     token_nums_per_expert,
@@ -160,7 +172,7 @@ def moe_dispatch(x, gate_out, topk, group_moe=True):
             ...     expert_scales_float,
             ...     top_k_indices,
             ...     group_max_prob,
-            ... ) = moe_dispatch(x, gate_out, topk, True)
+            ... ) = moe_dispatch(x, gating_output, moe_topk, True)
             >>> print(permute_input.shape)
             [7680, 768]
             >>> print(token_nums_per_expert.shape)
@@ -178,7 +190,7 @@ def moe_dispatch(x, gate_out, topk, group_moe=True):
             expert_scales_float,
             top_k_indices,
             group_max_prob,
-        ) = _C_ops.moe_dispatch(x, gate_out, topk, group_moe)
+        ) = _C_ops.moe_dispatch(x, gating_output, moe_topk, group_moe)
         return (
             permute_input,
             token_nums_per_expert,
@@ -211,12 +223,12 @@ def moe_dispatch(x, gate_out, topk, group_moe=True):
     outputs_dict["group_max_prob"] = group_max_prob
 
     inputs = {"X": x}
-    inputs["gating_output"] = gate_out
+    inputs["gating_output"] = gating_output
 
     helper.append_op(
         type='moe_dispatch',
         inputs=inputs,
-        attrs={"moe_topk": topk, "group_moe": group_moe},
+        attrs={"moe_topk": moe_topk, "group_moe": group_moe},
         outputs=outputs_dict,
     )
 
@@ -231,15 +243,15 @@ def moe_dispatch(x, gate_out, topk, group_moe=True):
 
 
 def moe_ffn(
-    X,
-    rows_per_expert,
-    ffn1_weight,
-    ffn1_scale,
-    ffn1_bias,
-    ffn2_weight,
-    ffn2_scale,
-    quant_method,
-):
+    permute_input: Tensor,
+    token_nums_per_expert: Tensor,
+    ffn1_weight: Tensor,
+    ffn2_weight: Tensor,
+    ffn1_bias: Tensor | None = None,
+    ffn1_scale: Tensor | None = None,
+    ffn2_scale: Tensor | None = None,
+    quant_method: str = "None",
+) -> Tensor:
     """
     Applies the feed-forward network (FFN) to the dispatched tokens for each expert.
 
@@ -248,7 +260,7 @@ def moe_ffn(
 
     Args:
         X (Tensor): The input tensor after dispatching, with shape `[total_tokens, d_model]`.
-        rows_per_expert (Tensor): The number of tokens assigned to each expert.
+        token_nums_per_expert (Tensor): The number of tokens assigned to each expert.
         ffn1_weight (Tensor): The weight for the first linear layer, with shape `[num_experts, d_model, d_ffn * 2]`.
         ffn1_scale (Tensor, optional): Scale tensor for dequantization of `ffn1_weight`, with shape `[num_experts, d_ffn * 2]`.
         ffn1_bias (Tensor, optional): Bias for the first linear layer, with shape `[num_experts, 1, d_ffn * 2]`.
@@ -266,11 +278,11 @@ def moe_ffn(
             >>> from paddle.incubate.nn.functional import moe_ffn
 
             >>> permute_input = paddle.randn([7680, 768])  # 7680 = bs * 128 *6
-            >>> rows_per_expert = paddle.to_tensor([48], dtype='int64')
+            >>> token_nums_per_expert = paddle.to_tensor([48], dtype='int64')
             >>> ffn1_weight = paddle.randn([48, 768, 6144])
             >>> ffn1_bias = paddle.randn([48, 1, 6144])
             >>> ffn2_weight = paddle.randn([48, 3072, 768])
-            >>> out = moe_ffn(permute_input, rows_per_expert, ffn1_weight, None, ffn1_bias, ffn2_weight)
+            >>> out = moe_ffn(permute_input, token_nums_per_expert, ffn1_weight, None, ffn1_bias, ffn2_weight)
             >>> print(out.shape)
             [7680, 768]
 
@@ -278,12 +290,12 @@ def moe_ffn(
 
     if in_dynamic_or_pir_mode():
         return _C_ops.moe_ffn(
-            X,
-            rows_per_expert,
+            permute_input,
+            token_nums_per_expert,
             ffn1_weight,
-            ffn1_scale,
-            ffn1_bias,
             ffn2_weight,
+            ffn1_bias,
+            ffn1_scale,
             ffn2_scale,
             quant_method,
         )
@@ -292,11 +304,11 @@ def moe_ffn(
 
     outputs_dict = {}
 
-    out = helper.create_variable_for_type_inference(dtype=X.dtype)
+    out = helper.create_variable_for_type_inference(dtype=permute_input.dtype)
     outputs_dict["ffn_out"] = out
 
-    inputs = {"X": X}
-    inputs["rows_per_expert"] = rows_per_expert
+    inputs = {"permute_input": permute_input}
+    inputs["token_nums_per_expert"] = token_nums_per_expert
     inputs["ffn1_weight"] = ffn1_weight
     inputs["ffn2_weight"] = ffn2_weight
 
@@ -319,13 +331,13 @@ def moe_ffn(
 
 
 def moe_reduce(
-    fc2_result,
-    fc2_expert_biases,
-    expert_scales_float,
-    expanded_source_row_to_expanded_dest_row,
-    topk_indices,
-    norm_topk_prob,
-):
+    ffn_out: Tensor,
+    expert_scales_float: Tensor,
+    scatter_index: Tensor,
+    top_k_indices: Tensor,
+    ffn2_bias: Tensor | None = None,
+    norm_topk_prob: bool = False,
+) -> Tensor:
     """
     Reduces the outputs from experts back to the original token order.
 
@@ -333,11 +345,11 @@ def moe_reduce(
     the original token positions. It also applies scaling factors to the outputs.
 
     Args:
-        fc2_result (Tensor): The output tensor from experts' FFN computation, with shape `[total_tokens, d_model]`.
-        fc2_expert_biases (Tensor, optional): The biases for the second FFN layer, with shape `[num_experts, 1, d_model]`.
-        expert_scales_float (Tensor): The scaling factors for each expert's outputs, with shape `[batch_size * seq_len, moe_topk]`.
-        expanded_source_row_to_expanded_dest_row (Tensor): The index mapping from expert outputs to original token positions.
-        topk_indices (Tensor): The indices of the selected experts for each token.
+        ffn_out (Tensor): The output tensor from experts' FFN computation, with shape `[total_tokens, d_model]`.
+        expert_scales_float (Tensor): The scaling factors for each expert's outputs, with shape `[batch_size * seq_len, moe_topk, 1, 1]`.
+        scatter_index (Tensor): The index mapping from expert outputs to original token positions.
+        top_k_indices (Tensor): The indices of the selected experts for each token.
+        ffn2_bias (Optional[Tensor]): The biases for the second FFN layer, with shape `[num_experts, 1, d_model]`.
         norm_topk_prob (bool): Whether to normalize the top-k probabilities.
 
     Returns:
@@ -349,32 +361,31 @@ def moe_reduce(
             >>> import paddle
             >>> from paddle.incubate.nn.functional import moe_reduce
 
-            >>> fc2_result = paddle.randn([7680, 768])  7680 = bs*128*6
-            >>> fc2_expert_biases = paddle.randn([48, 1, 768])
-            >>> expert_scales_float = paddle.rand([1280, 6])
-            >>> expanded_source_row_to_expanded_dest_row = paddle.to_tensor([6, 1280], dtype='int32')
-            >>> topk_indices = paddle.to_tensor([1280, 6], dtype='int32')
+            >>> ffn_out = paddle.randn([7680, 768])  # 7680 = bs * 128 * 6
+            >>> ffn2_bias = paddle.randn([48, 1, 768])
+            >>> expert_scales_float = paddle.rand([1280, 6, 1, 1])
+            >>> scatter_index = paddle.to_tensor([6, 1280], dtype='int32')
+            >>> top_k_indices = paddle.to_tensor([1280, 6], dtype='int32')
             >>> norm_topk_prob = False
             >>> output = moe_reduce(
-            ...     fc2_result,
-            ...     fc2_expert_biases,
+            ...     ffn_out,
             ...     expert_scales_float,
-            ...     expanded_source_row_to_expanded_dest_row,
-            ...     topk_indices,
+            ...     scatter_index,
+            ...     top_k_indices,
+            ...     ffn2_bias,
             ...     norm_topk_prob,
             ... )
-            >>> print(output.shape)
-            [1280, 768]
+            >>> print(output.shape)  # 输出: [1280, 768]
 
     """
 
     if in_dynamic_or_pir_mode():
         return _C_ops.moe_reduce(
-            fc2_result,
-            fc2_expert_biases,
+            ffn_out,
             expert_scales_float,
-            expanded_source_row_to_expanded_dest_row,
-            topk_indices,
+            scatter_index,
+            top_k_indices,
+            ffn2_bias,
             norm_topk_prob,
         )
 
@@ -382,17 +393,15 @@ def moe_reduce(
 
     outputs_dict = {}
 
-    output = helper.create_variable_for_type_inference(dtype=fc2_result.dtype)
+    output = helper.create_variable_for_type_inference(dtype=ffn_out.dtype)
     outputs_dict["output"] = output
 
-    inputs = {"fc2_result": fc2_result}
-    if fc2_expert_biases is not None:
-        inputs["fc2_expert_biases"] = fc2_expert_biases
+    inputs = {"ffn_out": ffn_out}
+    if ffn2_bias is not None:
+        inputs["ffn2_bias"] = ffn2_bias
     inputs["expert_scales_float"] = expert_scales_float
-    inputs["expanded_source_row_to_expanded_dest_row"] = (
-        expanded_source_row_to_expanded_dest_row
-    )
-    inputs["topk_indices"] = topk_indices
+    inputs["scatter_index"] = scatter_index
+    inputs["top_k_indices"] = top_k_indices
 
     helper.append_op(
         type='moe_reduce',
