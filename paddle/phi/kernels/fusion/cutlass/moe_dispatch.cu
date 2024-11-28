@@ -42,7 +42,7 @@ void MoeDispatchKernel(const Context& ctx,
                        const bool group_moe,
                        DenseTensor* permute_input,
                        DenseTensor* token_nums_per_expert,
-                       DenseTensor* scatter_index,
+                       DenseTensor* permute_indices_per_token,
                        DenseTensor* expert_scales_float,
                        DenseTensor* top_k_indices,
                        DenseTensor* group_max_prob) {
@@ -53,6 +53,17 @@ void MoeDispatchKernel(const Context& ctx,
   const int num_rows = X.dims()[0];
   const int hidden_size = X.dims()[1];
   const int expert_num = gating_output.dims()[1];
+  if (group_moe == true) {
+    // Check if expert_num is divisible by moe_topk, else throw an error
+    PADDLE_ENFORCE_EQ(expert_num % moe_topk,
+                      0,
+                      common::errors::InvalidArgument(
+                          "The number of experts (expert_num) "
+                          "must be divisible by moe_topk. "
+                          "Got expert_num = %d and moe_topk = %d.",
+                          expert_num,
+                          moe_topk));
+  }
 
   // correspond to the weighted coefficients of the results from each expert.
   expert_scales_float->Resize({num_rows, moe_topk});
@@ -117,13 +128,13 @@ void MoeDispatchKernel(const Context& ctx,
               ctx.stream());
 
   permute_input->Resize({moe_topk * num_rows, hidden_size});
-  scatter_index->Resize({moe_topk, num_rows});
+  permute_indices_per_token->Resize({moe_topk, num_rows});
 
   initialize_moe_routing_kernelLauncher(
       X.data<T>(),
       ctx.template Alloc<T>(permute_input),
       permuted_rows_,
-      ctx.template Alloc<int32_t>(scatter_index),
+      ctx.template Alloc<int32_t>(permute_indices_per_token),
       num_rows,
       num_rows,
       hidden_size,

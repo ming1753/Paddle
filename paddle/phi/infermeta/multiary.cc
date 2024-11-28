@@ -5999,18 +5999,16 @@ void MultiheadMatmulInferMeta(const MetaTensor& input,
   out->share_lod(input);
 }
 
-void moe_dispatchInferMeta(
-    const MetaTensor& X,
-    const MetaTensor& gating_output,
-    const int moe_topk,
-    const bool group_moe,
-    MetaTensor* permute_input,
-    MetaTensor* token_nums_per_expert,
-    MetaTensor* scatter_index,  // The index mapping for scattering outputs back
-                                // to the original order.
-    MetaTensor* expert_scales_float,
-    MetaTensor* top_k_indices,
-    MetaTensor* group_max_prob) {}
+void moe_dispatchInferMeta(const MetaTensor& X,
+                           const MetaTensor& gating_output,
+                           const int moe_topk,
+                           const bool group_moe,
+                           MetaTensor* permute_input,
+                           MetaTensor* token_nums_per_expert,
+                           MetaTensor* permute_indices_per_token,
+                           MetaTensor* expert_scales_float,
+                           MetaTensor* top_k_indices,
+                           MetaTensor* group_max_prob) {}
 
 void moe_ffnInferMeta(const MetaTensor& permute_input,
                       const MetaTensor& token_nums_per_expert,
@@ -6024,7 +6022,7 @@ void moe_ffnInferMeta(const MetaTensor& permute_input,
 
 void moe_reduceInferMeta(const MetaTensor& ffn_out,
                          const MetaTensor& expert_scales_float,
-                         const MetaTensor& scatter_index,
+                         const MetaTensor& permute_indices_per_token,
                          const MetaTensor& top_k_indices,
                          const MetaTensor& ffn2_bias,
                          const bool norm_topk_prob,

@@ -3458,7 +3458,7 @@
 
 - op : moe_dispatch
   args : (Tensor X, Tensor gating_output, int moe_topk = 2, bool group_moe = false)
-  output : Tensor(permute_input), Tensor(token_nums_per_expert), Tensor(scatter_index), Tensor(expert_scales_float), Tensor(top_k_indices), Tensor(group_max_prob)
+  output : Tensor(permute_input), Tensor(token_nums_per_expert), Tensor(permute_indices_per_token), Tensor(expert_scales_float), Tensor(top_k_indices), Tensor(group_max_prob)
   infer_meta :
     func : moe_dispatchInferMeta
   kernel :
@@ -3476,7 +3476,7 @@
   optional : ffn1_bias, ffn1_scale, ffn2_scale
 
 - op : moe_reduce
-  args : (Tensor ffn_out, Tensor expert_scales_float, Tensor scatter_index, Tensor top_k_indices, Tensor ffn2_bias, bool norm_topk_prob = false)
+  args : (Tensor ffn_out, Tensor expert_scales_float, Tensor permute_indices_per_token, Tensor top_k_indices, Tensor ffn2_bias, bool norm_topk_prob = false)
   output : Tensor(output)
   infer_meta :
     func : moe_reduceInferMeta

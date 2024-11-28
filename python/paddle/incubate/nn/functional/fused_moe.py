@@ -145,13 +145,13 @@ def moe_dispatch(
         x (Tensor): The input tensor with shape `[batch_size * seq_len, d_model]`.
         gating_output (Tensor): The gating output probabilities with shape `[batch_size * seq_len, num_experts]`.
         moe_topk (int): The number of top experts to select for each token.
-        group_moe (bool, optional): Whether to use group MoE. Default is `True`.
+        group_moe (bool, optional): Whether to use group MoE. Default is `True`.Group_size is expert_nums // moe_topk.
 
     Returns:
         Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
             - permute_input (Tensor): The permuted input tensor ready for expert processing.
             - token_nums_per_expert (Tensor): The number of tokens assigned to each expert.
-            - scatter_index (Tensor): The index mapping for scattering outputs back to the original order.
+            - permute_indices_per_token (Tensor): The index mapping for scattering outputs back to the original order.
             - expert_scales_float (Tensor): The scaling factors for each expert's outputs.
             - top_k_indices (Tensor): The indices of the selected experts for each token.
             - group_max_prob (Tensor): The maximum probability in each group (used in group MoE).
@@ -168,7 +168,7 @@ def moe_dispatch(
             >>> (
             ...     permute_input,
             ...     token_nums_per_expert,
-            ...     scatter_index,
+            ...     permute_indices_per_token,
             ...     expert_scales_float,
             ...     top_k_indices,
             ...     group_max_prob,
@@ -186,7 +186,7 @@ def moe_dispatch(
         (
             permute_input,
             token_nums_per_expert,
-            scatter_index,
+            permute_indices_per_token,
             expert_scales_float,
             top_k_indices,
             group_max_prob,
@@ -194,7 +194,7 @@ def moe_dispatch(
         return (
             permute_input,
             token_nums_per_expert,
-            scatter_index,
+            permute_indices_per_token,
             expert_scales_float,
             top_k_indices,
             group_max_prob,
@@ -208,7 +208,9 @@ def moe_dispatch(
     token_nums_per_expert = helper.create_variable_for_type_inference(
         dtype="int64"
     )
-    scatter_index = helper.create_variable_for_type_inference(dtype="int32")
+    permute_indices_per_token = helper.create_variable_for_type_inference(
+        dtype="int32"
+    )
     expert_scales_float = helper.create_variable_for_type_inference(
         dtype="float32"
     )
@@ -217,7 +219,7 @@ def moe_dispatch(
 
     outputs_dict["out"] = permute_input
     outputs_dict["token_nums_per_expert"] = token_nums_per_expert
-    outputs_dict["scatter_index"] = scatter_index
+    outputs_dict["permute_indices_per_token"] = permute_indices_per_token
     outputs_dict["expert_scales_float"] = expert_scales_float
     outputs_dict["expert_for_source_row_tensor"] = top_k_indices
     outputs_dict["group_max_prob"] = group_max_prob
@@ -235,7 +237,7 @@ def moe_dispatch(
     return (
         permute_input,
         token_nums_per_expert,
-        scatter_index,
+        permute_indices_per_token,
         expert_scales_float,
         top_k_indices,
         group_max_prob,
@@ -259,14 +261,14 @@ def moe_ffn(
     It supports optional quantization methods for the weights.
 
     Args:
-        X (Tensor): The input tensor after dispatching, with shape `[total_tokens, d_model]`.
+        permute_input (Tensor): The input tensor after dispatching, with shape `[total_tokens, d_model]`.
         token_nums_per_expert (Tensor): The number of tokens assigned to each expert.
         ffn1_weight (Tensor): The weight for the first linear layer, with shape `[num_experts, d_model, d_ffn * 2]`.
-        ffn1_scale (Tensor, optional): Scale tensor for dequantization of `ffn1_weight`, with shape `[num_experts, d_ffn * 2]`.
-        ffn1_bias (Tensor, optional): Bias for the first linear layer, with shape `[num_experts, 1, d_ffn * 2]`.
-        ffn2_weight (Tensor, optional): The weight for the second linear layer, with shape `[num_experts, d_ffn, d_model]`.
-        ffn2_scale (Tensor, optional): Scale tensor for dequantization of `ffn2_weight`, with shape `[num_experts, d_model]`.
-        quant_method (str, optional): Quantization method to be used. Currently not supported. Default is `"None"`.
+        ffn2_weight (Tensor): The weight for the second linear layer, with shape `[num_experts, d_ffn, d_model]`.
+        ffn1_bias (Tensor | None): Bias for the first linear layer, with shape `[num_experts, 1, d_ffn * 2]`. If `None`, bias is not used.
+        ffn1_scale (Tensor | None): Scale tensor for dequantization of `ffn1_weight`, with shape `[num_experts, d_ffn * 2]`. If `None`, scale is not applied.
+        ffn2_scale (Tensor | None): Scale tensor for dequantization of `ffn2_weight`, with shape `[num_experts, d_model]`. If `None`, scale is not applied.
+        quant_method (str): Quantization method to be used. Currently not supported. Default is `"None"`.
 
     Returns:
         Tensor: The output tensor after FFN computation, with shape `[total_tokens, d_model]`.
@@ -277,12 +279,11 @@ def moe_ffn(
             >>> import paddle
             >>> from paddle.incubate.nn.functional import moe_ffn
 
-            >>> permute_input = paddle.randn([7680, 768])  # 7680 = bs * 128 *6
+            >>> permute_input = paddle.randn([7680, 768])
             >>> token_nums_per_expert = paddle.to_tensor([48], dtype='int64')
             >>> ffn1_weight = paddle.randn([48, 768, 6144])
-            >>> ffn1_bias = paddle.randn([48, 1, 6144])
             >>> ffn2_weight = paddle.randn([48, 3072, 768])
-            >>> out = moe_ffn(permute_input, token_nums_per_expert, ffn1_weight, None, ffn1_bias, ffn2_weight)
+            >>> out = moe_ffn(permute_input, token_nums_per_expert, ffn1_weight, ffn2_weight, None, None)
             >>> print(out.shape)
             [7680, 768]
 
@@ -333,7 +334,7 @@ def moe_ffn(
 def moe_reduce(
     ffn_out: Tensor,
     expert_scales_float: Tensor,
-    scatter_index: Tensor,
+    permute_indices_per_token: Tensor,
     top_k_indices: Tensor,
     ffn2_bias: Tensor | None = None,
     norm_topk_prob: bool = False,
@@ -347,7 +348,7 @@ def moe_reduce(
     Args:
         ffn_out (Tensor): The output tensor from experts' FFN computation, with shape `[total_tokens, d_model]`.
         expert_scales_float (Tensor): The scaling factors for each expert's outputs, with shape `[batch_size * seq_len, moe_topk, 1, 1]`.
-        scatter_index (Tensor): The index mapping from expert outputs to original token positions.
+        permute_indices_per_token (Tensor): The index mapping from expert outputs to original token positions.
         top_k_indices (Tensor): The indices of the selected experts for each token.
         ffn2_bias (Optional[Tensor]): The biases for the second FFN layer, with shape `[num_experts, 1, d_model]`.
         norm_topk_prob (bool): Whether to normalize the top-k probabilities.
@@ -364,13 +365,13 @@ def moe_reduce(
             >>> ffn_out = paddle.randn([7680, 768])  # 7680 = bs * 128 * 6
             >>> ffn2_bias = paddle.randn([48, 1, 768])
             >>> expert_scales_float = paddle.rand([1280, 6, 1, 1])
-            >>> scatter_index = paddle.to_tensor([6, 1280], dtype='int32')
+            >>> permute_indices_per_token = paddle.to_tensor([6, 1280], dtype='int32')
             >>> top_k_indices = paddle.to_tensor([1280, 6], dtype='int32')
             >>> norm_topk_prob = False
             >>> output = moe_reduce(
             ...     ffn_out,
             ...     expert_scales_float,
-            ...     scatter_index,
+            ...     permute_indices_per_token,
             ...     top_k_indices,
             ...     ffn2_bias,
             ...     norm_topk_prob,
@@ -383,7 +384,7 @@ def moe_reduce(
         return _C_ops.moe_reduce(
             ffn_out,
             expert_scales_float,
-            scatter_index,
+            permute_indices_per_token,
             top_k_indices,
             ffn2_bias,
             norm_topk_prob,
@@ -400,7 +401,7 @@ def moe_reduce(
     if ffn2_bias is not None:
         inputs["ffn2_bias"] = ffn2_bias
     inputs["expert_scales_float"] = expert_scales_float
-    inputs["scatter_index"] = scatter_index
+    inputs["permute_indices_per_token"] = permute_indices_per_token
     inputs["top_k_indices"] = top_k_indices
 
     helper.append_op(

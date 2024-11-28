@@ -280,7 +280,7 @@ class TestFusedGoupeMoEOp(TestFusedMoEOp):
         (
             permute_input,
             token_nums_per_expert,
-            scatter_index,
+            permute_indices_per_token,
             expert_scales_float,
             top_k_indices,
             max_prob,
@@ -305,7 +305,7 @@ class TestFusedGoupeMoEOp(TestFusedMoEOp):
         final_out = moe_reduce(
             ffn_out,
             expert_scales_float,
-            scatter_index,
+            permute_indices_per_token,
             top_k_indices,
             self.bmm_b1,
         )
