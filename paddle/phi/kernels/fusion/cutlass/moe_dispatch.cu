@@ -86,8 +86,17 @@ void MoeDispatchKernel(const Context& ctx,
   group_max_prob->Resize({num_rows, moe_topk});
   float* group_max_out = ctx.template Alloc<float>(group_max_prob);
 
-  DenseTensor softmax_buffer = Empty<float>(ctx, {num_rows * expert_num});
-  float* softmax_out_ = softmax_buffer.data<float>();
+  float* softmax_out_;
+
+  const bool is_pow_2 =
+      (expert_num != 0) && ((expert_num & (expert_num - 1)) == 0);
+
+  if (!is_pow_2 || expert_num > 256 || group_moe) {
+    DenseTensor softmax_buffer = Empty<float>(ctx, {num_rows * expert_num});
+    softmax_out_ = softmax_buffer.data<float>();
+  } else {
+    softmax_out_ = nullptr;
+  }
 
   VLOG(4) << "num_rows: " << num_rows << ", expert_num: " << expert_num
           << ", moe_topk: " << moe_topk << ", group_moe: " << group_moe;

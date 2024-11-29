@@ -159,6 +159,7 @@ def moe_dispatch(
     Examples:
         .. code-block:: python
 
+            >>> # doctest: +REQUIRES(env:GPU)
             >>> import paddle
             >>> from paddle.incubate.nn.functional import moe_dispatch
 
@@ -276,6 +277,7 @@ def moe_ffn(
     Examples:
         .. code-block:: python
 
+            >>> # doctest: +REQUIRES(env:GPU)
             >>> import paddle
             >>> from paddle.incubate.nn.functional import moe_ffn
 

@@ -112,6 +112,7 @@ class TestFusedMoEOp(OpTest):
 
         paddle.set_default_dtype(self.x_type)
         self.activation = swiglu
+        self.quanted = False
 
     def config(self):
         self.x_type = np.float16
@@ -126,8 +127,9 @@ class TestFusedMoEOp(OpTest):
         self.group_moe = False
 
     def GetWintData(self):
-        if self.quant_method == "None":
+        if self.quant_method == "None" or self.quanted:
             return
+        self.quanted = True
         fc0_expert_weights_for_ref_list = []
         scale0 = []
         for i in range(self.num_expert):
@@ -181,6 +183,59 @@ class TestFusedMoEOp(OpTest):
         )
 
         return fused_out
+
+    def GetSplitMoeOut(self, tensor_x):
+        if self.quant_method != "None":
+            self.GetWintData()
+
+        paddle.disable_static(place=paddle.CUDAPlace(0))
+
+        # Reshape input tensor
+        tensor_x = tensor_x.reshape([-1, self.d_model])  # Shape: [1280, 768]
+
+        # Gate output
+        gate_out = paddle.matmul(tensor_x.cast("float32"), self.gate_weight)
+        gate_out = gate_out.reshape([-1, self.num_expert])
+
+        from paddle.incubate.nn.functional import (
+            moe_dispatch,
+            moe_ffn,
+            moe_reduce,
+        )
+
+        # Dispatch tokens to experts
+        (
+            permute_input,
+            token_nums_per_expert,
+            permute_indices_per_token,
+            expert_scales_float,
+            top_k_indices,
+            max_prob,
+        ) = moe_dispatch(tensor_x, gate_out, self.top_k, self.group_moe)
+
+        # Apply feed-forward networks for experts
+        ffn_out = moe_ffn(
+            permute_input,
+            token_nums_per_expert,
+            self.bmm_w0,
+            self.bmm_w1,
+            self.bmm_b0,
+            None if self.quant_method == "None" else self.scale0,
+            None if self.quant_method == "None" else self.scale1,
+            self.quant_method,
+        )
+
+        # Reduce results back to the original token order
+        final_out = moe_reduce(
+            ffn_out,
+            expert_scales_float,
+            permute_indices_per_token,
+            top_k_indices,
+            self.bmm_b1,
+            norm_topk_prob=self.norm_topk_prob,
+        )
+        final_out = final_out.reshape([-1, self.seq_len, self.d_model])
+        return final_out
 
     def GetBaselineOut(self, hidden_states):
         paddle.disable_static(place=paddle.CUDAPlace(0))
@@ -238,8 +293,15 @@ class TestFusedMoEOp(OpTest):
     def test_fused_moe_op_new(self):
         ref_out = self.GetBaselineOut(self.tensor_x).cast(np.float32)
         fused_moe_out = self.GetFusedMoeOut(self.tensor_x).cast(np.float32)
+        split_moe_out = self.GetSplitMoeOut(self.tensor_x).cast(np.float32)
         np.testing.assert_allclose(
             ref_out, fused_moe_out, rtol=self.rtol, atol=self.atol
+        )
+        np.testing.assert_allclose(
+            ref_out, split_moe_out, rtol=self.rtol, atol=self.atol
+        )
+        np.testing.assert_allclose(
+            fused_moe_out, fused_moe_out, rtol=self.rtol, atol=self.atol
         )
 
 
@@ -260,15 +322,15 @@ class TestFusedGoupeMoEOp(TestFusedMoEOp):
         self.num_expert = 48
         self.top_k = 6
 
-    def GetFusedMoeOut(self, tensor_x):
+    def GetMoeOut(self, tensor_x):
         paddle.disable_static(place=paddle.CUDAPlace(0))
 
         # Reshape input tensor
         tensor_x = tensor_x.reshape([-1, self.d_model])  # Shape: [1280, 768]
 
         # Gate output
-        gate_out_ori = paddle.matmul(tensor_x.cast("float32"), self.gate_weight)
-        gate_out = gate_out_ori.reshape([-1, self.num_expert])
+        gate_out = paddle.matmul(tensor_x.cast("float32"), self.gate_weight)
+        gate_out = gate_out.reshape([-1, self.num_expert])
 
         from paddle.incubate.nn.functional import (
             moe_dispatch,
@@ -373,7 +435,7 @@ class TestFusedGoupeMoEOp(TestFusedMoEOp):
 
     def test_fused_moe_op_new(self):
         ref_out = self.GetBaselineOut(self.tensor_x).cast(np.float32)
-        fused_moe_out = self.GetFusedMoeOut(self.tensor_x).cast(np.float32)
+        fused_moe_out = self.GetMoeOut(self.tensor_x).cast(np.float32)
 
         np.testing.assert_allclose(
             ref_out, fused_moe_out, rtol=self.rtol, atol=self.atol
