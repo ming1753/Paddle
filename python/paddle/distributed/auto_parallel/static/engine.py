@@ -838,7 +838,7 @@ class Engine:
         # TODO(hitywt) Step 3.2: Reshard Pass
         #   resolute the reshard op into special collective operation.
         #   collect the communicator created during resolution.
-        ReshardPasses.apply_reshard_pass(dist_program)
+        ReshardPasses.apply_reshard_pass(dist_program, global_params_grads)
 
         # Note(luchang): When using VPP pipeline pass, we need to split the whole graph into
         # multiple chunks and adjust the process mesh accordingly. Here, we need to store the

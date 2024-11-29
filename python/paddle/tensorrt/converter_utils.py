@@ -170,6 +170,14 @@ def add_1D_constant_layer(network, data, dtype=np.int32, is_scalar=False):
     return constant_layer.get_output(0)
 
 
+# Create and add ND constant layer
+def add_constant_layer(network, data, shape, dtype=np.int32):
+    constant_data = np.array(data, dtype=dtype)
+    constant_data = np.resize(constant_data, shape)
+    constant_layer = network.add_constant(shape, constant_data)
+    return constant_layer.get_output(0)
+
+
 # Create an constant layer with shape_tensor and value
 def fill_constant_layer(network, shape_tensor, tensor_rank, data, trt_dtype):
     fill_layer = network.add_fill(

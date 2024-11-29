@@ -20,11 +20,61 @@ import paddle.distributed as dist
 from .parallel_base import ParallelModel, ParallelOptimizer, is_tensor
 
 
+def c_split(x, process_mesh, need_transpose):
+    index = process_mesh.dim_names.index('mp')  # get the axis for the split
+    if isinstance(x, tuple):
+        target_x = x[0]
+    else:
+        target_x = x
+    assert is_tensor(target_x)
+    assert len(target_x.shape) == 3
+    if need_transpose:
+        target_x = paddle.transpose(target_x, perm=[1, 0, 2])
+    placements = target_x.placements
+    if placements is None:
+        placements = [dist.Replicate() for _ in range(len(process_mesh.shape))]
+    placements[index] = dist.Shard(0)
+    target_x = dist.reshard(target_x, process_mesh, placements)
+    if isinstance(x, tuple):
+        x = list(x)
+        x[0] = target_x
+        x = tuple(x)
+    else:
+        x = target_x
+
+    return x
+
+
+def c_concat(x, process_mesh, need_transpose):
+    index = process_mesh.dim_names.index('mp')  # get the axis for the split
+    if isinstance(x, tuple):
+        target_x = x[0]
+    else:
+        target_x = x
+    assert is_tensor(target_x)
+    assert len(target_x.shape) == 3
+    placements = target_x.placements
+    if placements is None:
+        placements = [dist.Replicate() for _ in range(len(process_mesh.shape))]
+    placements[index] = dist.Replicate()
+    target_x = dist.reshard(target_x, process_mesh, placements)
+    if need_transpose:
+        target_x = paddle.transpose(target_x, perm=[1, 0, 2])
+    if isinstance(x, tuple):
+        x = list(x)
+        x[0] = target_x
+        x = tuple(x)
+    else:
+        x = target_x
+
+    return x
+
+
 class PlanBase:
     def __init__(self):
         pass
 
-    def apply(self, param, process_mesh, shard_weight, shard_bias):
+    def apply(self, layer, process_mesh, shard_weight, shard_bias):
         raise NotImplementedError("Don't call the PlanBase directly.")
 
 
@@ -40,8 +90,16 @@ class ColWiseParallel(PlanBase):
     Note: `layer.bias` should have one dim.
     """
 
-    def __init__(self):
+    def __init__(self, gather_output=False):
         super().__init__()
+        self.gather_output = gather_output
+
+    def gather_output_hook(self, process_mesh):
+        def gather_hook(layer, input, output):
+            assert output is not None
+            return c_concat(output, process_mesh, False)
+
+        return gather_hook
 
     def apply(self, layer, process_mesh, shard_weight=True, shard_bias=True):
         """
@@ -79,6 +137,11 @@ class ColWiseParallel(PlanBase):
             assert len(layer.bias.shape) == 1
             layer.bias = dist.shard_tensor(layer.bias, process_mesh, placement)
 
+        if self.gather_output:
+            layer.register_forward_post_hook(
+                self.gather_output_hook(process_mesh)
+            )
+
 
 class RowWiseParallel(PlanBase):
     """
@@ -90,8 +153,15 @@ class RowWiseParallel(PlanBase):
     Note: `layer.weight` should have two dims.
     """
 
-    def __init__(self):
+    def __init__(self, is_input_parallel=True):
         super().__init__()
+        self.is_input_parallel = is_input_parallel
+
+    def split_input_hook(self, process_mesh):
+        def split_hook(layer, input, output):
+            return c_split(input, process_mesh, False)
+
+        return split_hook
 
     def apply(self, layer, process_mesh, shard_weight=True, shard_bias=False):
         """
@@ -124,6 +194,8 @@ class RowWiseParallel(PlanBase):
                 process_mesh,
                 placement,
             )
+        if not self.is_input_parallel:
+            layer.register_forward_pre_hook(self.split_input_hook(process_mesh))
 
 
 class PrepareLayerInput(PlanBase):
@@ -156,56 +228,6 @@ class PrepareLayerOutput(PlanBase):
         layer.register_forward_post_hook(self.fn(process_mesh=process_mesh))
 
 
-def sp_split(x, process_mesh, need_transpose):
-    index = process_mesh.dim_names.index('mp')  # get the axis for the split
-    if isinstance(x, tuple):
-        target_x = x[0]
-    else:
-        target_x = x
-    assert is_tensor(target_x)
-    assert len(target_x.shape) == 3
-    if need_transpose:
-        target_x = paddle.transpose(target_x, perm=[1, 0, 2])
-    placements = target_x.placements
-    if placements is None:
-        placements = [dist.Replicate() for _ in range(len(process_mesh.shape))]
-    placements[index] = dist.Shard(0)
-    target_x = dist.reshard(target_x, process_mesh, placements)
-    if isinstance(x, tuple):
-        x = list(x)
-        x[0] = target_x
-        x = tuple(x)
-    else:
-        x = target_x
-
-    return x
-
-
-def sp_reduce_scatter(x, process_mesh, need_transpose):
-    index = process_mesh.dim_names.index('mp')  # get the axis for the split
-    if isinstance(x, tuple):
-        target_x = x[0]
-    else:
-        target_x = x
-    assert is_tensor(target_x)
-    assert len(target_x.shape) == 3
-    placements = target_x.placements
-    if placements is None:
-        placements = [dist.Replicate() for _ in range(len(process_mesh.shape))]
-    placements[index] = dist.Replicate()
-    target_x = dist.reshard(target_x, process_mesh, placements)
-    if need_transpose:
-        target_x = paddle.transpose(target_x, perm=[1, 0, 2])
-    if isinstance(x, tuple):
-        x = list(x)
-        x[0] = target_x
-        x = tuple(x)
-    else:
-        x = target_x
-
-    return x
-
-
 class SequenceParallelBegin(PlanBase):
     """
     With need_transpose=True, this plan will transpose and reshard the output from [b, s, h] to [s/mp, b, h].
@@ -222,7 +244,7 @@ class SequenceParallelBegin(PlanBase):
     def sequence_parallel_begin(self, process_mesh):
         def begin(layer, input, output):
             assert output is not None
-            return sp_split(output, process_mesh, self.need_transpose)
+            return c_split(output, process_mesh, self.need_transpose)
 
         return begin
 
@@ -248,7 +270,7 @@ class SequenceParallelEnd(PlanBase):
     def sequence_parallel_end(self, process_mesh):
         def end(layer, input, output=None):
             assert input is not None
-            return sp_reduce_scatter(input, process_mesh, self.need_transpose)
+            return c_concat(input, process_mesh, self.need_transpose)
 
         return end
 
@@ -269,14 +291,14 @@ class SequenceParallelEnable(PlanBase):
     def sequence_parallel_begin(self, process_mesh):
         def begin(layer, input, output=None):
             assert input is not None
-            return sp_split(input, process_mesh, True)
+            return c_split(input, process_mesh, True)
 
         return begin
 
     def sequence_parallel_end(self, process_mesh):
         def end(layer, input, output):
             assert output is not None
-            return sp_reduce_scatter(output, process_mesh, True)
+            return c_concat(output, process_mesh, True)
 
         return end
 
@@ -310,13 +332,13 @@ class SequenceParallelDisable(PlanBase):
 
     def sequence_parallel_begin(self, process_mesh):
         def begin(layer, input, output=None):
-            return sp_split(output, process_mesh, self.need_transpose)
+            return c_split(output, process_mesh, self.need_transpose)
 
         return begin
 
     def sequence_parallel_end(self, process_mesh):
         def end(layer, input, output=None):
-            return sp_reduce_scatter(input, process_mesh, self.need_transpose)
+            return c_concat(input, process_mesh, self.need_transpose)
 
         return end
 
@@ -395,15 +417,18 @@ class TensorParallel(ParallelModel):
         return model
 
 
-def tensor_parallel(model, optimizer=None, parallelize_plan=None):
+def tensor_parallel(model, optimizer=None, config=None):
     """
     Tensor parallel.
-    :param model: paddle.nn.Layer, the model to be shard into tensor parallel.
-    :param parallelize_plan: Dict, the plan to shard the layer.
-    :param optimizer: paddle.optimizer.Optimizer, the optimizer.
-    :return:
-        model: model after sharding
-        optimizer: optimizer after sharding
+    Args:
+        model (paddle.nn.Layer): the model to be shard into tensor parallel.
+        optimizer (paddle.optimizer.Optimizer): the optimizer.
+        config (dict): {
+            "parallelize_plan": dict, the plan to shard the layer.
+        }
+    Returns:
+        model: model after tp
+        optimizer: optimizer after tp
 
     NOTE: the plan should be a dict maps layer name or parameter name to a split_plan,
     which will be used to split the layer or the parameter. The name can be written in regular format.
@@ -423,6 +448,7 @@ def tensor_parallel(model, optimizer=None, parallelize_plan=None):
     }
     ```
     """
+    parallelize_plan = config.get("parallelize_plan")
     if parallelize_plan is None:
         # Do nothing if no plan.
         logging.warning(

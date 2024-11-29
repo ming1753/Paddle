@@ -235,7 +235,8 @@ OpFuncType AnalyseOpFuncType(pir::Operation* op, const phi::Place& place) {
       return OpFuncType::kGpuSync;
     }
 
-    if (op_name.compare(paddle::dialect::ShapeOp::name()) == 0) {
+    if (op_name.compare(paddle::dialect::ShapeOp::name()) == 0 ||
+        op_name.compare(paddle::dialect::Shape64Op::name()) == 0) {
       return OpFuncType::kGpuSync;
     }
   }

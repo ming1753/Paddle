@@ -1868,6 +1868,42 @@ def dot(x: Tensor, y: Tensor, name: str | None = None) -> Tensor:
         return out
 
 
+def vecdot(
+    x: Tensor,
+    y: Tensor,
+    axis: int = -1,
+    name: str | None = None,
+) -> Tensor:
+    """
+    Computes the dot product of two tensors along a specified axis.
+
+    This function multiplies two tensors element-wise and sums them along a specified axis to compute their dot product. It supports tensors of any dimensionality, including 0-D tensors, as long as the shapes of `x` and `y` are broadcastable along the specified axis.
+
+    Args:
+        x (Tensor): The first input tensor. It should be a tensor with dtype of float32, float64, int32, int64, complex64, or complex128.
+        y (Tensor): The second input tensor. Its shape must be broadcastable with `x` along the specified `axis`, and it must have the same dtype as `x`.
+        axis (int, optional): The axis along which to compute the dot product. Default is -1, which indicates the last axis.
+        name (str|None, optional): Name of the output. Default is None. It's used to print debug info for developers. Details: :ref:`api_guide_Name`
+
+    Returns:
+        Tensor: A tensor containing the dot product of `x` and `y` along the specified axis.
+
+    Examples:
+
+        .. code-block:: python
+
+            >>> import paddle
+            >>> x = paddle.to_tensor([[1, 2, 3], [4, 5, 6]], dtype='float32')
+            >>> y = paddle.to_tensor([[1, 2, 3], [4, 5, 6]], dtype='float32')
+            >>> result = paddle.linalg.vecdot(x, y, axis=1)
+            >>> print(result)
+            Tensor(shape=[2], dtype=float32, place=Place(cpu), stop_gradient=True,
+            [14.0, 77.0])
+    """
+    out = (x.conj() * y).sum(axis=axis)
+    return out
+
+
 def cov(
     x: Tensor,
     rowvar: bool = True,
@@ -2944,6 +2980,55 @@ def svd(
             attrs=attrs,
         )
         return u, s, vh
+
+
+def svdvals(x: Tensor, name: str | None = None) -> Tensor:
+    r"""
+    Computes the singular values of one matrix or a batch of matrices.
+
+    Let :math:`X` be the input matrix or a batch of input matrices,
+    the output singular values :math:`S` are the diagonal elements of the matrix
+    produced by singular value decomposition:
+
+    .. math::
+        X = U * diag(S) * VH
+
+    Args:
+        x (Tensor): The input tensor. Its shape should be `[..., M, N]`, where
+            `...` is zero or more batch dimensions. The data type of x should
+            be float32 or float64.
+        name (str|None, optional): Name for the operation. For more
+            information, please refer to :ref:`api_guide_Name`.
+            Default: None.
+
+    Returns:
+        Tensor: Singular values of x. The shape is `[..., K]`, where `K = min(M, N)`.
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+
+            >>> x = paddle.to_tensor([[1.0, 2.0], [1.0, 3.0], [4.0, 6.0]])
+            >>> s = paddle.linalg.svdvals(x)
+            >>> print(s)
+            Tensor(shape=[2], dtype=float32, place=Place(cpu), stop_gradient=True,
+            [8.14753819, 0.78589684])
+    """
+    if in_dynamic_or_pir_mode():
+        return _C_ops.svdvals(x)
+    else:
+        check_variable_and_dtype(x, 'dtype', ['float32', 'float64'], 'svdvals')
+        helper = LayerHelper('svdvals', **locals())
+        s = helper.create_variable_for_type_inference(dtype=x.dtype)
+        attrs = {}
+        helper.append_op(
+            type='svdvals',
+            inputs={'X': [x]},
+            outputs={'S': s},
+            attrs=attrs,
+        )
+        return s
 
 
 def _conjugate(x):

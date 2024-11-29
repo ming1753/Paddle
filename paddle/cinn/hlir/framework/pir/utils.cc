@@ -349,11 +349,29 @@ bool CauseNewSymbolicShape(const ::pir::Operation& op) {
   if (FLAGS_disable_dyshape_in_train) {
     return false;
   }
+
+  auto& shape_analysis = ::pir::ShapeAnalysisManager::Instance().Get(
+      const_cast<::pir::Operation&>(op).GetParentProgram());
+
+  const auto& isProcessableSlice = [&]() -> bool {
+    const ::pir::Value& starts_value = op.operand_source(1);
+    const ::pir::Value& ends_value = op.operand_source(2);
+    const symbol::ShapeOrDataDimExprs& starts_shape_data =
+        shape_analysis.GetShapeOrDataForValue(starts_value);
+    const symbol::ShapeOrDataDimExprs& ends_shape_data =
+        shape_analysis.GetShapeOrDataForValue(ends_value);
+    return starts_shape_data.data().has_value() &&
+           ends_shape_data.data().has_value();
+  };
+
+  if (op.isa<paddle::dialect::SliceOp>() && !isProcessableSlice()) {
+    return true;
+  }
+
   if (!HaveUnkDim(op)) {
     return false;
   }
-  auto& shape_analysis = ::pir::ShapeAnalysisManager::Instance().Get(
-      const_cast<::pir::Operation&>(op).GetParentProgram());
+
   std::unordered_set<std::string> input_exprs = [&]() {
     std::unordered_set<std::string> res;
     for (const auto& input_value : op.operands_source()) {

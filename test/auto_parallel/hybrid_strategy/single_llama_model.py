@@ -136,8 +136,8 @@ class LlamaDecoderLayer(nn.Layer):
         self.input_layernorm = LlamaRMSNorm(self.config)
         self.post_attention_layernorm = LlamaRMSNorm(self.config)
 
-    def forward(self, hidden_states):
-        residual = hidden_states
+    def forward(self, hidden_states, global_tensor):
+        residual = hidden_states + global_tensor
         hidden_states = self.input_layernorm(hidden_states)
         hidden_states = self.self_attn(hidden_states)
         hidden_states = residual + hidden_states
@@ -148,6 +148,19 @@ class LlamaDecoderLayer(nn.Layer):
         hidden_states = residual + hidden_states
 
         return hidden_states
+
+
+class GlobalOutputNet(nn.Layer):
+    def __init__(self, config) -> None:
+        super().__init__()
+        self.config = config
+
+    def forward(self, input):
+        return (
+            input
+            if input is not None
+            else paddle.rand([self.config.hidden_size], dtype="float32")
+        )
 
 
 class LlamaModel(nn.Layer):
@@ -171,6 +184,8 @@ class LlamaModel(nn.Layer):
             else None
         )
 
+        self.global_layer = GlobalOutputNet(self.config)
+
         decoder_layers = []
         for i in range(self.config.num_hidden_layers):
             decoder_layers.append(LlamaDecoderLayer(self.config))
@@ -187,8 +202,10 @@ class LlamaModel(nn.Layer):
             position_embeddings = self.position_embedding(position_ids)
             hidden_states = hidden_states + position_embeddings
 
+        global_tensor = self.global_layer(None)
+
         for idx, (decoder_layer) in enumerate(self.layers):
-            hidden_states = decoder_layer(hidden_states)
+            hidden_states = decoder_layer(hidden_states, global_tensor)
 
         hidden_states = self.norm(hidden_states)
 

@@ -1343,6 +1343,21 @@ def bitwise_or(
     )
 
 
+def __ror__(
+    x: Tensor,
+    y: int | bool,
+    out: Tensor | None = None,
+    name: str | None = None,
+) -> Tensor:
+    if isinstance(y, (int, bool)):
+        y = paddle.to_tensor(y, dtype=x.dtype)
+        return bitwise_or(y, x, out=out, name=name)
+    else:
+        raise TypeError(
+            f"unsupported operand type(s) for |: '{type(y).__name__}' and 'Tensor'"
+        )
+
+
 @inplace_apis_in_dygraph_only
 def bitwise_or_(x: Tensor, y: Tensor, name: str | None = None) -> Tensor:
     r"""

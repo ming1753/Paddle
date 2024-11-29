@@ -241,6 +241,7 @@ from .tensor.linalg import (  # noqa: F401
     t_,
     transpose,
     transpose_,
+    vecdot,
 )
 from .tensor.logic import (
     allclose,
@@ -778,6 +779,7 @@ newaxis: None = None
 inf = math.inf
 nan = math.nan
 pi = math.pi
+e = math.e
 
 __all__ = [
     'block_diag',
@@ -1214,6 +1216,8 @@ __all__ = [
     'to_dlpack',
     'inf',
     'newaxis',
+    'vecdot',
     'nan',
     'pi',
+    'e',
 ]

@@ -1521,8 +1521,8 @@ PHI_DEFINE_EXPORTED_bool(use_shm_cache,
  * Since Version: 2.6.2
  * Value Range: bool, default=false
  * Example:
- * Note: . If True, mmap_allocator will use file descripor to open shared memory
- * operation.
+ * Note: . If True, mmap_allocator will use file descriptor to open shared
+ * memory operation.
  */
 PHI_DEFINE_EXPORTED_bool(dataloader_use_file_descriptor,
                          false,

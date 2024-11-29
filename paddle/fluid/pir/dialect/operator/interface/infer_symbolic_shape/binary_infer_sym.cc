@@ -1833,16 +1833,18 @@ bool RepeatInterleaveWithTensorIndexOpInferSymbolicShape(
           "shape is %d-D.",
           repeats_shape_or_data.shape().size()));
 
-  ExprVec repeat_times_shape =
-      paddle::dialect::details::GetOrCreateExprVecFromData(
-          repeats_shape_or_data, infer_context);
+  ExprVec repeat_times_shape;
+  if (repeats_shape_or_data.data().has_value()) {
+    repeat_times_shape.assign(repeats_shape_or_data.data()->begin(),
+                              repeats_shape_or_data.data()->end());
+  } else {
+    symbol::DimExpr out_unknown = infer_context->GetNextSymName();
+    repeat_times_shape.push_back(out_unknown);
+  }
 
-  const auto &GetSum = [&](const auto &dim_exprs) {
-    symbol::DimExpr sum{0};
-    for (const auto &dim_expr : dim_exprs) {
-      sum = sum + dim_expr;
-    }
-    return sum;
+  const auto &GetSum = [](const auto &dim_exprs) {
+    return std::accumulate(
+        dim_exprs.begin(), dim_exprs.end(), symbol::DimExpr{0}, std::plus<>());
   };
 
   int x_rank = x_shape.size();

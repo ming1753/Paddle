@@ -75,7 +75,7 @@ class TEST_API MetaTensor {
   virtual void set_strides(const DDim& strides);
 
   virtual void share_lod(const MetaTensor& meta_tensor);
-  void share_lod(const LoD& lod);
+  void share_lod(const LoD& legacy_lod);
   void share_lod(const MetaTensor& meta_tensor, int64_t index);
   virtual void share_meta(const MetaTensor& meta_tensor);
   virtual void share_dims(const MetaTensor& meta_tensor);

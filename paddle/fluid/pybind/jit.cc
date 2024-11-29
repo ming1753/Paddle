@@ -76,6 +76,9 @@ void BindGuard(pybind11::module *m) {
   py::class_<TypeMatchGuard, GuardBase, std::shared_ptr<TypeMatchGuard>>(
       *m, "TypeMatchGuard", R"DOC(TypeMatchGuard Class.)DOC")
       .def(py::init<const py::type &>(), py::arg("py_type"));
+  py::class_<IdMatchGuard, GuardBase, std::shared_ptr<IdMatchGuard>>(
+      *m, "IdMatchGuard", R"DOC(IdMatchGuard Class.)DOC")
+      .def(py::init<const py::object &>(), py::arg("py_obj"));
   py::class_<LengthMatchGuard, GuardBase, std::shared_ptr<LengthMatchGuard>>(
       *m, "LengthMatchGuard", R"DOC(LengthMatchGuard Class.)DOC")
       .def(py::init<const Py_ssize_t &>(), py::arg("length"));

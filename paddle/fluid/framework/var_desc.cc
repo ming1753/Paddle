@@ -58,11 +58,11 @@ void VarDesc::SetShape(const std::vector<int64_t> &dims) {
 void VarDesc::SetTensorDescNum(size_t num) {
   switch (desc_.type().type()) {
     case proto::VarType::READER: {
-      auto *lod_tensors_ptr =
-          desc_.mutable_type()->mutable_reader()->mutable_lod_tensor();
-      lod_tensors_ptr->Clear();
+      auto *dense_tensors_ptr =
+          desc_.mutable_type()->mutable_reader()->mutable_dense_tensor();
+      dense_tensors_ptr->Clear();
       for (size_t i = 0; i < num; ++i) {
-        lod_tensors_ptr->Add();
+        dense_tensors_ptr->Add();
       }
       return;
     } break;
@@ -78,7 +78,7 @@ void VarDesc::SetTensorDescNum(size_t num) {
 size_t VarDesc::GetTensorDescNum() const {
   switch (desc_.type().type()) {
     case proto::VarType::READER:
-      return desc_.type().reader().lod_tensor_size();
+      return desc_.type().reader().dense_tensor_size();
       break;
     default:
       PADDLE_THROW(
@@ -162,7 +162,7 @@ std::vector<proto::VarType::Type> VarDesc::GetDataTypes() const {
 void VarDesc::SetLoDLevel(int32_t lod_level) {
   switch (desc_.type().type()) {
     case proto::VarType::DENSE_TENSOR:
-      desc_.mutable_type()->mutable_lod_tensor()->set_lod_level(lod_level);
+      desc_.mutable_type()->mutable_dense_tensor()->set_lod_level(lod_level);
       break;
     case proto::VarType::DENSE_TENSOR_ARRAY:
       desc_.mutable_type()->mutable_tensor_array()->set_lod_level(lod_level);
@@ -187,9 +187,9 @@ void VarDesc::SetLoDLevels(const std::vector<int32_t> &multiple_lod_level) {
   switch (desc_.type().type()) {
     case proto::VarType::READER: {
       size_t i = 0;
-      for (auto &lod_tensor :
-           *desc_.mutable_type()->mutable_reader()->mutable_lod_tensor()) {
-        lod_tensor.set_lod_level(multiple_lod_level[i++]);
+      for (auto &dense_tensor :
+           *desc_.mutable_type()->mutable_reader()->mutable_dense_tensor()) {
+        dense_tensor.set_lod_level(multiple_lod_level[i++]);
       }
     } break;
     default:
@@ -203,7 +203,7 @@ void VarDesc::SetLoDLevels(const std::vector<int32_t> &multiple_lod_level) {
 int32_t VarDesc::GetLoDLevel() const {
   switch (desc_.type().type()) {
     case proto::VarType::DENSE_TENSOR:
-      return desc_.type().lod_tensor().lod_level();
+      return desc_.type().dense_tensor().lod_level();
     case proto::VarType::DENSE_TENSOR_ARRAY:
       return desc_.type().tensor_array().lod_level();
     default:
@@ -217,9 +217,9 @@ std::vector<int32_t> VarDesc::GetLoDLevels() const {
   std::vector<int32_t> res;
   switch (desc_.type().type()) {
     case proto::VarType::READER:
-      res.reserve(desc_.type().reader().lod_tensor_size());
-      for (auto &lod_tensor : desc_.type().reader().lod_tensor()) {
-        res.push_back(lod_tensor.lod_level());
+      res.reserve(desc_.type().reader().dense_tensor_size());
+      for (auto &dense_tensor : desc_.type().reader().dense_tensor()) {
+        res.push_back(dense_tensor.lod_level());
       }
       return res;
       break;
@@ -243,7 +243,7 @@ const proto::VarType::TensorDesc &VarDesc::tensor_desc() const {
     case proto::VarType::SELECTED_ROWS:
       return desc_.type().selected_rows();
     case proto::VarType::DENSE_TENSOR:
-      return desc_.type().lod_tensor().tensor();
+      return desc_.type().dense_tensor().tensor();
     case proto::VarType::DENSE_TENSOR_ARRAY:
       return desc_.type().tensor_array().tensor();
     case proto::VarType::STRINGS:
@@ -268,8 +268,8 @@ std::vector<proto::VarType::TensorDesc> VarDesc::tensor_descs() const {
   res.reserve(GetTensorDescNum());
   switch (desc_.type().type()) {
     case proto::VarType::READER:
-      for (const auto &lod_tensor : desc_.type().reader().lod_tensor()) {
-        res.push_back(lod_tensor.tensor());
+      for (const auto &dense_tensor : desc_.type().reader().dense_tensor()) {
+        res.push_back(dense_tensor.tensor());
       }
       return res;
     default:
@@ -292,7 +292,7 @@ proto::VarType::TensorDesc *VarDesc::mutable_tensor_desc() {
     case proto::VarType::SELECTED_ROWS:
       return desc_.mutable_type()->mutable_selected_rows();
     case proto::VarType::DENSE_TENSOR:
-      return desc_.mutable_type()->mutable_lod_tensor()->mutable_tensor();
+      return desc_.mutable_type()->mutable_dense_tensor()->mutable_tensor();
     case proto::VarType::DENSE_TENSOR_ARRAY:
       return desc_.mutable_type()->mutable_tensor_array()->mutable_tensor();
     case proto::VarType::STRINGS:
@@ -323,9 +323,9 @@ std::vector<proto::VarType::TensorDesc *> VarDesc::mutable_tensor_descs() {
   res.reserve(GetTensorDescNum());
   switch (desc_.type().type()) {
     case proto::VarType::READER:
-      for (auto &lod_tensor :
-           *desc_.mutable_type()->mutable_reader()->mutable_lod_tensor()) {
-        res.push_back(lod_tensor.mutable_tensor());
+      for (auto &dense_tensor :
+           *desc_.mutable_type()->mutable_reader()->mutable_dense_tensor()) {
+        res.push_back(dense_tensor.mutable_tensor());
       }
       return res;
     default:

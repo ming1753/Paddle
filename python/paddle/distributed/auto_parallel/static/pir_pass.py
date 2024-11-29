@@ -294,7 +294,7 @@ class ReshardPasses:
             op.erase()
 
     @staticmethod
-    def reshard_op_pass(dist_program, block=None):
+    def reshard_op_pass(dist_program, global_params_grads=None, block=None):
         if block is None:
             block = dist_program.global_block()
         for op in block.ops:
@@ -313,6 +313,10 @@ class ReshardPasses:
 
                 if src_dist_attr == dst_dist_attr:
                     op.result(0).replace_all_uses_with(var)
+                    if global_params_grads is not None:
+                        for idx, (p, g) in enumerate(global_params_grads):
+                            if g is not None and g.is_same(op.result(0)):
+                                global_params_grads[idx] = (p, var)
                     op.erase()
                     continue
 
@@ -336,13 +340,21 @@ class ReshardPasses:
                     op.result(0).replace_all_uses_with(out_value)
 
                 if op.result(0).use_empty():
+                    if global_params_grads is not None:
+                        for idx, (p, g) in enumerate(global_params_grads):
+                            if g is not None and g.is_same(op.result(0)):
+                                global_params_grads[idx] = (
+                                    (p, out_value)
+                                    if out_value is not None
+                                    else (p, var)
+                                )
                     op.erase()
 
     @staticmethod
-    def apply_reshard_pass(dist_program):
+    def apply_reshard_pass(dist_program, global_params_grads=None):
         ReshardPasses.decompose_reshard_pass(dist_program)
         ReshardPasses.fold_reshard_pass(dist_program)
-        ReshardPasses.reshard_op_pass(dist_program)
+        ReshardPasses.reshard_op_pass(dist_program, global_params_grads)
 
 
 # Replace the specific MoE-related dist op with the

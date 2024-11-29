@@ -4193,7 +4193,7 @@ void GraphDataGenerator::DoSageForInfer() {
         total_instance = 2;
         d_type_keys = reinterpret_cast<uint64_t *>(
             d_device_keys_[tensor_pair_idx][infer_cursor_[tensor_pair_idx]]
-                ->ptr());  // copy from begining
+                ->ptr());  // copy from beginning
       } else {
         d_type_keys += infer_node_start_[tensor_pair_idx];
         infer_node_start_[tensor_pair_idx] += total_instance / 2;

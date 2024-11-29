@@ -45,6 +45,7 @@ class TestDPMPPPAPI(test_base.CommunicationTestDistBase):
             "test_position_embedding": [
                 "1",
             ],
+            "one_api": ["true", "false"],
         }
 
     def test_simple_net_dp2_mp2_pp2(self):

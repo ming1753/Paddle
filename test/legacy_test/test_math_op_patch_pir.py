@@ -17,6 +17,7 @@ import unittest
 import warnings
 
 import numpy as np
+from utils import dygraph_guard, static_guard
 
 import paddle
 from paddle import base
@@ -250,6 +251,63 @@ class TestMathOpPatchesPir(unittest.TestCase):
                 np.testing.assert_array_equal(res_np_b, b_np)
                 np.testing.assert_array_equal(res_np_c, c_np)
                 np.testing.assert_array_equal(res_np_d, d_np)
+
+    def test_ror(self):
+        with dygraph_guard():
+            x_int32 = 5
+            x_bool = True
+            y_np = np.random.randint(0, 2, [2, 3, 5]).astype("int32")
+            y_tensor = paddle.to_tensor(y_np)
+            res_ror_int32 = x_int32 | y_tensor
+            res_py_int32 = x_int32 | y_tensor.numpy()
+            np.testing.assert_array_equal(res_py_int32, res_ror_int32.numpy())
+            res_ror_bool = x_bool | y_tensor
+            res_py_bool = x_bool | y_tensor.numpy()
+            np.testing.assert_array_equal(res_py_bool, res_ror_bool.numpy())
+            for x_np in (
+                np.float32(5.0),
+                np.float64(5.0),
+                np.complex64(5),
+                np.complex128(5.0 + 2j),
+            ):
+                with self.assertRaises(TypeError):
+                    x_np | y_tensor
+
+        with static_guard():
+            with paddle.pir_utils.IrGuard():
+                main_program, exe, program_guard = new_program()
+                with program_guard:
+                    x_int = 5
+                    y_np = np.random.randint(-100, 100, [2, 3, 5]).astype(
+                        "int32"
+                    )
+                    y = paddle.static.data("y", y_np.shape, dtype=y_np.dtype)
+                    z = x_int | y
+                    out = exe.run(
+                        main_program,
+                        feed={'y': y_np},
+                        fetch_list=[z],
+                    )
+                    out_ref = x_int | y_np
+                    np.testing.assert_array_equal(out[0], out_ref)
+                    x_bool = True
+                    res_ror_bool = x_bool | y
+                    out_bool = exe.run(
+                        main_program,
+                        feed={'y': y_np},
+                        fetch_list=[res_ror_bool],
+                    )
+                    res_py_bool = x_bool | y_np
+                    np.testing.assert_array_equal(out_bool[0], res_py_bool)
+
+                    for x_invalid in (
+                        np.float32(5.0),
+                        np.float64(5.0),
+                        np.complex64(5),
+                        np.complex128(5.0 + 2j),
+                    ):
+                        with self.assertRaises(TypeError):
+                            x_invalid | y
 
     def test_bitwise_and(self):
         paddle.disable_static()

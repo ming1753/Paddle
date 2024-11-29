@@ -407,8 +407,10 @@ class TEST_API ArrayToTensorOp : public pir::Op<ArrayToTensorOp,
       const std::vector<std::vector<bool>> &stop_gradients);
 };
 
-class TEST_API TensorToArrayOp
-    : public pir::Op<TensorToArrayOp, OpYamlInfoInterface, InferMetaInterface> {
+class TEST_API TensorToArrayOp : public pir::Op<TensorToArrayOp,
+                                                OpYamlInfoInterface,
+                                                InferMetaInterface,
+                                                InferSymbolicShapeInterface> {
  public:
   using Op::Op;
   static const char *name() { return "pd_op.tensor_to_array"; }
@@ -429,6 +431,7 @@ class TEST_API TensorToArrayOp
   static std::vector<pir::Type> InferMeta(
       const std::vector<pir::Value> &input_values,
       pir::AttributeMap *p_attributes);
+  bool InferSymbolicShape(pir::InferSymbolicShapeContext *infer_context);
 };
 
 class TEST_API SliceArrayOp

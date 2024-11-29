@@ -1765,15 +1765,6 @@
     context_start : contextStart
     context_stride : contextStride
 
-- op : fusion_seqexpand_concat_fc
-  inputs :
-    x : X
-    fc_weight : FCWeight
-    fc_bias : FCBias
-  outputs :
-    out : Out
-    fc_out : FCOut
-
 - op : fusion_seqpool_concat
   inputs:
     x : X

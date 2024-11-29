@@ -115,7 +115,11 @@ void SaveCombineFunction(const std::vector<const phi::DenseTensor*>& x,
 
   MkDirRecursively(DirName(file_path).c_str());
   VLOG(6) << "save func save path: " << file_path;
-  std::ostringstream ss;
+  std::ofstream fout(file_path, std::ios::binary);
+  PADDLE_ENFORCE_EQ(static_cast<bool>(fout),
+                    true,
+                    common::errors::Unavailable(
+                        "Cannot open %s to save variables.", file_path));
   PADDLE_ENFORCE_GT(x.size(),
                     0UL,
                     common::errors::InvalidArgument(
@@ -134,18 +138,11 @@ void SaveCombineFunction(const std::vector<const phi::DenseTensor*>& x,
     auto out_dtype = save_as_fp16 ? phi::DataType::FLOAT16 : in_dtype;
     if (in_dtype != out_dtype) {
       auto out = CastTensorType(dev_ctx, tensor, out_dtype);
-      paddle::framework::SerializeToStream(ss, out, *dev_ctx);
+      paddle::framework::SerializeToStream(fout, out, *dev_ctx);
     } else {
-      paddle::framework::SerializeToStream(ss, tensor, *dev_ctx);
+      paddle::framework::SerializeToStream(fout, tensor, *dev_ctx);
     }
   }
-  MkDirRecursively(DirName(file_path).c_str());
-  std::ofstream fout(file_path, std::ios::binary);
-  PADDLE_ENFORCE_EQ(static_cast<bool>(fout),
-                    true,
-                    common::errors::Unavailable(
-                        "Cannot open %s to save variables.", file_path));
-  fout << ss.str();
   fout.close();
   VLOG(6) << "save combine done ";
 }

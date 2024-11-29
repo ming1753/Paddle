@@ -30,8 +30,7 @@ __global__ void int8_gemm(int8_t const* act,
                           int k) {
 #if defined(PADDLE_WITH_CUDA) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 700
   return;
-#endif
-
+#else
   using VecType = int4;
   static constexpr int kStepK = 128 / (8 * sizeof(int8_t));
   static constexpr int CtaK = kStepK * Threads;
@@ -100,6 +99,7 @@ __global__ void int8_gemm(int8_t const* act,
     }
     output[mid * n + nid] = static_cast<Type>(static_cast<float>(val));
   }
+#endif
 }
 
 template <typename InputType,

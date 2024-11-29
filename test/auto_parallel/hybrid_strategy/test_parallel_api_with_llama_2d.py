@@ -44,6 +44,7 @@ class TestMPPPAPI(test_base.CommunicationTestDistBase):
             "test_position_embedding": [
                 "1",
             ],
+            "one_api": ["true", "false"],
         }
 
     def test_simple_net_mp2_pp2(self):
@@ -86,6 +87,7 @@ class TestDPPPAPI(test_base.CommunicationTestDistBase):
             "test_position_embedding": [
                 "1",
             ],
+            "one_api": ["true", "false"],
         }
 
     def test_simple_net_dp2_pp2(self):
@@ -129,6 +131,7 @@ class TestDPMPAPI(test_base.CommunicationTestDistBase):
             "test_position_embedding": [
                 "1",
             ],
+            "one_api": ["true", "false"],
         }
 
     def test_simple_net_mp2_pp2(self):

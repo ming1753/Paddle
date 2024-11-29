@@ -60,7 +60,7 @@ struct OnlyOneDownstreamMatcher {
 template <typename StmtPattern>
 struct StmtPatternGraphMatcher {
   bool operator()(const PatternGraph& graph, const PatternNodePtr& node) {
-    return GetPatternName(node->stmt_pattern()) == StmtPattern::name();
+    return GetPatternType(node->stmt_pattern()) == StmtPattern::type();
   }
 };
 

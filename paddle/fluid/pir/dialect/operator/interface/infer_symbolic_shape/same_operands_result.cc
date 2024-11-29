@@ -49,8 +49,6 @@ OP_SAME_OPERANDS_AND_RESULT(Hardtanh_)
 OP_SAME_OPERANDS_AND_RESULT(Bernoulli)
 OP_SAME_OPERANDS_AND_RESULT(BitwiseNot)
 OP_SAME_OPERANDS_AND_RESULT(BitwiseNot_)
-OP_SAME_OPERANDS_AND_RESULT(Ceil)
-OP_SAME_OPERANDS_AND_RESULT(Ceil_)
 OP_SAME_OPERANDS_AND_RESULT(Celu)
 OP_SAME_OPERANDS_AND_RESULT(Clip)
 OP_SAME_OPERANDS_AND_RESULT(Clip_)
@@ -255,13 +253,13 @@ bool ScaleOpInferSymbolicShape(pir::Operation *op,
     return GetOptionalAttributeData("scale");
   };
 
-  if (operand_shape_or_data.data()) {
+  if (operand_shape_or_data.data().has_value()) {
     const std::optional<symbol::DimExpr> &opt_scale = GetOptionalScaleData();
     const std::optional<symbol::DimExpr> &opt_bias =
         GetOptionalAttributeData("bias");
     if (opt_scale && opt_bias) {
       std::vector<symbol::DimExpr> data;
-      for (auto &val : *(operand_shape_or_data.data())) {
+      for (auto &val : operand_shape_or_data.data().value()) {
         data.push_back(val * (opt_scale.value()) + (opt_bias.value()));
       }
       SetOutputWithShapeAndData(data);
@@ -282,6 +280,19 @@ bool ArgsortOpInferSymbolicShape(
   infer_context->SetShapeOrDataForValue(op->result(0), operand_shape_or_data);
   infer_context->SetShapeOrDataForValue(op->result(1), operand_shape_or_data);
   return true;
+}
+
+bool CeilOpInferSymbolicShape(pir::Operation *op,
+                              pir::InferSymbolicShapeContext *infer_context) {
+  const symbol::ShapeOrDataDimExprs &operand_shape_or_data =
+      infer_context->GetShapeOrDataForValue(op->operand_source(0));
+  infer_context->SetShapeOrDataForValue(op->result(0), operand_shape_or_data);
+  return true;
+}
+
+bool Ceil_OpInferSymbolicShape(pir::Operation *op,
+                               pir::InferSymbolicShapeContext *infer_context) {
+  return CeilOpInferSymbolicShape(op, infer_context);
 }
 
 }  // namespace paddle::dialect

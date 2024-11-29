@@ -641,6 +641,7 @@
     func : nop
   inplace: (x -> out)
   interfaces : paddle::dialect::ParseKernelKeyInterface
+  traits : pir::SideEffectTrait, paddle::dialect::ForwardOnlyTrait
 
 - op : not_equal
   args : (Tensor x, Tensor y)

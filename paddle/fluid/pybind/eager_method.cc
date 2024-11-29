@@ -3316,6 +3316,121 @@ static PyObject* tensor_is_contiguous(TensorObject* self,
   EAGER_CATCH_AND_THROW_RETURN_NULL
 }
 
+PyDoc_STRVAR(tensor_method_sparse_dim__doc__,
+             R"DOC(sparse_dim($self, /)
+--
+
+Returns the number of sparse dimensions of sparse Tensor.
+
+Note:
+    **If self is not sparse Tensor, return 0.**
+
+Returns:
+    int, sparse dim of self Tensor
+
+Examples:
+
+    .. code-block:: python
+
+        >>> import paddle
+
+        >>> indices = [[0, 1, 2], [1, 2, 0]]
+        >>> values = [1.0, 2.0, 3.0]
+        >>> dense_shape = [3, 3]
+        >>> coo = paddle.sparse.sparse_coo_tensor(indices, values, dense_shape)
+        >>> coo.sparse_dim()
+        2
+
+        >>> crows = [0, 2, 3, 5]
+        >>> cols = [1, 3, 2, 0, 1]
+        >>> values = [1, 2, 3, 4, 5]
+        >>> dense_shape = [3, 4]
+        >>> csr = paddle.sparse.sparse_csr_tensor(crows, cols, values, dense_shape)
+        >>> csr.sparse_dim()
+        2
+
+        >>> dense = paddle.to_tensor([1, 2, 3])
+        >>> dense.sparse_dim()
+        0
+
+)DOC");  // NOLINT
+
+static PyObject* tensor_method_sparse_dim(TensorObject* self,
+                                          PyObject* args,
+                                          PyObject* kwargs) {
+  EAGER_TRY
+  if (self->tensor.is_sparse_coo_tensor()) {
+    auto sparse_coo_tensor =
+        std::dynamic_pointer_cast<phi::SparseCooTensor>(self->tensor.impl());
+    return ToPyObject(sparse_coo_tensor->sparse_dim());
+  } else if (self->tensor.is_sparse_csr_tensor()) {
+    auto sparse_csr_tensor =
+        std::dynamic_pointer_cast<phi::SparseCsrTensor>(self->tensor.impl());
+    return ToPyObject(sparse_csr_tensor->sparse_dim());
+  } else {
+    return ToPyObject(0);
+  }
+  EAGER_CATCH_AND_THROW_RETURN_NULL
+}
+
+PyDoc_STRVAR(tensor_method_dense_dim__doc__,
+             R"DOC(dense_dim($self, /)
+--
+
+Returns the number of dense dimensions of sparse Tensor.
+
+Note:
+    **If self is not sparse Tensor, return len(self.shape).**
+
+Returns:
+    int, dense dim of self Tensor
+
+Examples:
+
+    .. code-block:: python
+
+        >>> import paddle
+        >>> import numpy as np
+
+        >>> indices = [[0, 1, 1], [2, 0, 2]]
+        >>> values = np.array([[3, 4], [5, 6], [7, 8]])
+        >>> dense_shape = [2, 3, 2]
+        >>> coo = paddle.sparse.sparse_coo_tensor(indices, values, dense_shape)
+        >>> coo.dense_dim()
+        1
+
+        >>> crows = [0, 2, 3, 5]
+        >>> cols = [1, 3, 2, 0, 1]
+        >>> values = [1, 2, 3, 4, 5]
+        >>> dense_shape = [3, 4]
+        >>> csr = paddle.sparse.sparse_csr_tensor(crows, cols, values, dense_shape)
+        >>> csr.dense_dim()
+        0
+
+        >>> dense = paddle.to_tensor([[1, 2, 3]])
+        >>> dense.dense_dim()
+        >>> 2
+
+)DOC");  // NOLINT
+
+static PyObject* tensor_method_dense_dim(TensorObject* self,
+                                         PyObject* args,
+                                         PyObject* kwargs) {
+  EAGER_TRY
+  if (self->tensor.is_sparse_coo_tensor()) {
+    auto sparse_coo_tensor =
+        std::dynamic_pointer_cast<phi::SparseCooTensor>(self->tensor.impl());
+    return ToPyObject(sparse_coo_tensor->dense_dim());
+  } else if (self->tensor.is_sparse_csr_tensor()) {
+    auto sparse_csr_tensor =
+        std::dynamic_pointer_cast<phi::SparseCsrTensor>(self->tensor.impl());
+    return ToPyObject(sparse_csr_tensor->dense_dim());
+  } else {
+    return ToPyObject(self->tensor.shape().size());
+  }
+  EAGER_CATCH_AND_THROW_RETURN_NULL
+}
+
 static PyObject* tensor_method__set_impl(TensorObject* self,
                                          PyObject* args,
                                          PyObject* kwargs) {
@@ -3581,6 +3696,14 @@ PyMethodDef variable_methods[] = {  // NOLINT
      (PyCFunction)(void (*)())tensor_method_is_coalesced,
      METH_VARARGS | METH_KEYWORDS,
      tensor_is_coalesced__doc__},
+    {"sparse_dim",
+     (PyCFunction)(void (*)())tensor_method_sparse_dim,
+     METH_VARARGS | METH_KEYWORDS,
+     tensor_method_sparse_dim__doc__},
+    {"dense_dim",
+     (PyCFunction)(void (*)())tensor_method_dense_dim,
+     METH_VARARGS | METH_KEYWORDS,
+     tensor_method_dense_dim__doc__},
     /***the method of sparse tensor****/
     {"element_size",
      (PyCFunction)(void (*)())tensor_method_element_size,

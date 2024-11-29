@@ -2612,7 +2612,7 @@ class OpTest(unittest.TestCase):
                 self.checker_name = "symbol infer checker"
 
             def infer_and_compare_symbol(self):
-                """infer symbol and compare it with actualy shape and data"""
+                """infer symbol and compare it with actual shape and data"""
                 self.is_python_api_test = True
                 self.op_test._infer_and_compare_symbol(place)
 

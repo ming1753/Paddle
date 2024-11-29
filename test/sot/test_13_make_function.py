@@ -73,8 +73,7 @@ class TestMakeFunction(TestCaseBase):
         self.assert_results(make_fn_default, paddle.to_tensor(1))
         self.assert_results(make_fn_annotation, paddle.to_tensor(1))
         self.assert_results(make_fn_kwdefault, paddle.to_tensor(1))
-        # self.assert_results(make_fn_closure, paddle.to_tensor(1))
-        # we haven't pass this test yet
+        self.assert_results(make_fn_closure, paddle.to_tensor(1))
         self.assert_results(make_fn_mix, paddle.to_tensor(1))
 
 

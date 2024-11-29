@@ -216,7 +216,7 @@ class BlockDimExprsAsserter {
   }
 
   pir::Value BuildShapeTensorFromInferMeta(pir::Value output) {
-    return builder_.Build<paddle::dialect::ShapeOp>(output).out();
+    return builder_.Build<paddle::dialect::Shape64Op>(output).out();
   }
 
   void TryAssertDimExprsForOutputData(const pir::Operation* op,

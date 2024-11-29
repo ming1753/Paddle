@@ -79,9 +79,9 @@ class AssignFunctor {
  public:
   explicit AssignFunctor(Variable *out) : out_(out) {}
 
-  void operator()(const phi::DenseTensor &lod_tensor) const {
+  void operator()(const phi::DenseTensor &dense_tensor) const {
     auto &out_tensor = *out_->GetMutable<phi::DenseTensor>();
-    copy_tensor(lod_tensor, &out_tensor);
+    copy_tensor(dense_tensor, &out_tensor);
   }
 
   void operator()(const phi::TensorArray &array) const {
@@ -111,12 +111,12 @@ class AssignFunctor {
   }
 
  private:
-  void copy_tensor(const phi::DenseTensor &lod_tensor,
+  void copy_tensor(const phi::DenseTensor &dense_tensor,
                    phi::DenseTensor *out) const {
-    if (!lod_tensor.IsInitialized()) return;
+    if (!dense_tensor.IsInitialized()) return;
     auto &out_tensor = *out;
-    TensorCopy(lod_tensor, lod_tensor.place(), &out_tensor);
-    out_tensor.set_lod(lod_tensor.lod());
+    TensorCopy(dense_tensor, dense_tensor.place(), &out_tensor);
+    out_tensor.set_lod(dense_tensor.lod());
   }
 
   Variable *out_;

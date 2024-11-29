@@ -369,6 +369,17 @@ void OperatorDialect::initialize() {
 #define GET_OP_LIST2
 #include "paddle/fluid/pir/dialect/operator/ir/pd_op_info.cc"  // NOLINT
       >();
+
+  RegisterOps<
+#define GET_OP_LIST3
+#include "paddle/fluid/pir/dialect/operator/ir/pd_op_info.cc"  // NOLINT
+      >();
+
+  RegisterOps<
+#define GET_OP_LIST4
+#include "paddle/fluid/pir/dialect/operator/ir/pd_op_info.cc"  // NOLINT
+      >();
+
 #else
   RegisterOps<
 #define GET_OP_LIST

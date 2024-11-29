@@ -63,7 +63,7 @@ void WeightOnlyLinearKernel(const Context& dev_ctx,
             0,
             common::errors::Fatal(
                 "scale failed, scale related variable `r` is %d", r));
-        r = baidu::xpu::api::cast_v2<XPUType, float>(
+        r = baidu::xpu::api::cast<XPUType, float>(
             xpu_ctx->x_context(),
             reinterpret_cast<const XPUType*>(
                 max_value_fp16.data<phi::dtype::float16>()),
@@ -72,7 +72,7 @@ void WeightOnlyLinearKernel(const Context& dev_ctx,
         PADDLE_ENFORCE_EQ(r,
                           0,
                           common::errors::Fatal(
-                              "cast_v2 failed, related variable `r` is %d", r));
+                              "cast failed, related variable `r` is %d", r));
       } else if (weight_scale.dtype() == phi::DataType::FLOAT32) {
         r = baidu::xpu::api::scale(xpu_ctx->x_context(),
                                    weight_scale.data<float>(),
@@ -95,12 +95,13 @@ void WeightOnlyLinearKernel(const Context& dev_ctx,
           bias.get().dtype() == phi::DataType::FLOAT16) {
         bias_fp32.Resize(bias.get().dims());
         dev_ctx.template Alloc<float>(&bias_fp32);
-        r = baidu::xpu::api::cast_v2<XPUType, float>(
+        r = baidu::xpu::api::cast<XPUType, float>(
             xpu_ctx->x_context(),
             reinterpret_cast<const XPUType*>(
                 bias.get().data<phi::dtype::float16>()),
             bias_fp32.data<float>(),
             n);
+        PADDLE_ENFORCE_XDNN_SUCCESS(r, "cast");
       }
       if (weight_dtype == "int8") {
         r = baidu::xpu::api::gpt_fc_fusion<XPUType, int8_t, XPUType, int8_wo_t>(

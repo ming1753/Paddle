@@ -482,8 +482,8 @@ void PirInterpreter::ClearLoDTensorArrayInLocalScope() {
   auto vars = local_scope_->LocalVars();
   for (auto var : vars) {
     if (var->IsType<phi::TensorArray>()) {
-      auto* lod_tensor_arr = var->GetMutable<phi::TensorArray>();
-      lod_tensor_arr->clear();
+      auto* dense_tensor_arr = var->GetMutable<phi::TensorArray>();
+      dense_tensor_arr->clear();
     }
   }
 }

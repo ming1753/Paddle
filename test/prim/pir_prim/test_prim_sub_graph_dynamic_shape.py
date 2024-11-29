@@ -1143,6 +1143,27 @@ class TestPrimBatchNorm8(TestPrimThree):
         self.tol = 1e-5
 
 
+class TestPrimBatchNormNC(TestPrimThree):
+    def setUp(self):
+        np.random.seed(2023)
+        self.shape_x = [30, 40]
+        self.shape_y = [40]
+        self.shape_z = [40]
+        self.dtype_x = "float32"
+        self.dtype_y = "float32"
+        self.dtype_z = "float32"
+        self.init_x_shape = [None, None]
+        self.init_y_shape = [None]
+        self.init_z_shape = [None]
+        self.x = np.random.random(self.shape_x).astype(self.dtype_x)
+        self.y = np.random.random(self.shape_y).astype(self.dtype_y)
+        self.z = np.random.random(self.shape_z).astype(self.dtype_z)
+        self.net = batch_norm_net2
+        self.necessary_ops = "pd_op.batch_norm_"
+        self.enable_cinn = False
+        self.tol = 1e-5
+
+
 class TestPrimLogLoss1(TestPrimTwo):
     def setUp(self):
         np.random.seed(2023)

@@ -522,8 +522,8 @@ static StmtPattern MergePatternImpl(const HorizontalFusionPattern& first,
 
 static StmtPattern MergePattern(const StmtPattern& first,
                                 const StmtPattern& second) {
-  VLOG(4) << "MergePattern: " << GetPatternName(first) << " x "
-          << GetPatternName(second);
+  VLOG(4) << "MergePattern: " << GetPatternId(first) << " x "
+          << GetPatternId(second);
   const auto PatternMatch = adt::match{
       [&](const ReduceTreePattern& lhs, const ReduceTreePattern& rhs) {
         return MergePatternImpl(lhs, rhs);

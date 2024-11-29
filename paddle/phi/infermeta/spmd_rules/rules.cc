@@ -726,5 +726,8 @@ PD_REGISTER_SPMD_RULE(pad,
 PD_REGISTER_SPMD_RULE(nonzero,
                       PD_INFER_SPMD(phi::distributed::NonZeroInferSpmd),
                       PD_INFER_SPMD(phi::distributed::NonZeroInferSpmdReverse));
+
+// add_n
+PD_REGISTER_SPMD_RULE(add_n, PD_INFER_SPMD(phi::distributed::AddNInferSpmd));
 }  // namespace distributed
 }  // namespace phi

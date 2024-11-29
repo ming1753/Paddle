@@ -226,10 +226,6 @@ class TestFusedMoEOp(OpTest):
         )
 
         # Reduce results back to the original token order
-        # print(ffn_out.shape)
-        # print(expert_scales_float.shape)
-        # print(permute_indices_per_token.shape)
-        # print(top_k_indices.shape)
 
         final_out = moe_reduce(
             ffn_out,
@@ -337,7 +333,6 @@ class TestFusedGoupeMoEOp(TestFusedMoEOp):
         tensor_x = tensor_x.reshape([-1, self.d_model])  # Shape: [1280, 768]
 
         gate_out = paddle.matmul(tensor_x.cast("float32"), self.gate_weight)
-        print(gate_out.shape)
         gate_out = gate_out.reshape([-1, self.num_expert])
 
         from paddle.incubate.nn.functional import (

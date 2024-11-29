@@ -74,6 +74,8 @@ bool TypeMatchGuard::check(PyObject* value) {
   return Py_TYPE(value) == expected_;
 }
 
+bool IdMatchGuard::check(PyObject* value) { return value == expected_; }
+
 bool ValueMatchGuard::check(PyObject* value) {
   return PyObject_Equal(value, expected_value_);
 }

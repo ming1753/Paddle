@@ -318,7 +318,7 @@ class DistUTPortManager:
         if depth == 0:
             # After all directories are scanned and processed
             # 1. Get the num_port of last added test and set DIST_UT_PORT+=num_port
-            #    to guarantee the DIST_UT_PORT is not assined
+            #    to guarantee the DIST_UT_PORT is not assigned
             # 2. Summary all the directories which include csv but no cmake and show an error
             #    if such a drectory exists
 

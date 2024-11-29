@@ -218,7 +218,7 @@ void ApplyCinnLowerPass(
 
   if (FLAGS_enable_cinn_accuracy_check) {
     VLOG(0) << "Enable CINN Accuracy Check Pass";
-    pass_manager->AddPass(cinn::dialect::ir::CreateAccuarcyCheckPass());
+    pass_manager->AddPass(cinn::dialect::ir::CreateAccuracyCheckPass());
   }
   if (FLAGS_enable_fusion_fallback) {
     VLOG(0) << "Enable Fusion Fallback Pass";

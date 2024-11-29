@@ -29,8 +29,10 @@ from paddle.base.data_feeder import (
     _PADDLE_DTYPE_2_NUMPY_DTYPE,
     convert_uint16_to_float,
 )
+from paddle.base.libpaddle import Place
 from paddle.profiler.utils import in_profiler_mode
 from paddle.utils import deprecated
+from paddle.utils.dlpack import DLDeviceType
 
 from .. import core, framework, unique_name
 from ..framework import (
@@ -127,6 +129,7 @@ def monkey_patch_tensor():
             'strides',
             'offset',
             '__cuda_array_interface__',
+            '__dlpack_device__',
         ]
         param_keys = ['stop_gradient', 'trainable']
         if isinstance(self, EagerParamBase):
@@ -1257,6 +1260,39 @@ def monkey_patch_tensor():
         """
         return _C_ops.sparse_coalesce(self)
 
+    @framework.dygraph_only
+    def __dlpack_device__(self):
+        """
+        Extract the DLPack device type and device ID for the current tensor.
+
+        Returns:
+            tuple: A tuple containing the DLPack device type and device ID.
+                - device_type (DLDeviceType): The type of device (e.g., kDLCPU, kDLCUDA, etc.).
+                - device_id (int): The device ID.
+        """
+        place = self.place
+        if isinstance(place, Place):
+            if place.is_gpu_place():
+                return DLDeviceType.kDLCUDA, place.gpu_device_id()
+            elif place.is_cpu_place():
+                return DLDeviceType.kDLCPU, None
+            elif place.is_cuda_pinned_place():
+                return DLDeviceType.kDLCUDAHost, None
+            elif place.is_xpu_place():
+                return DLDeviceType.kDLOneAPI, place.xpu_device_id()
+            else:
+                raise RuntimeError(f"Unsupported Paddle device type {place}")
+        elif place.is_cpu_place():
+            return DLDeviceType.kDLCPU, None
+        elif place.is_cuda_pinned_place():
+            return DLDeviceType.kDLCUDAHost, None
+        elif place.is_gpu_place():
+            return DLDeviceType.kDLCUDA, place.get_device_id()
+        elif place.is_xpu_place():
+            return DLDeviceType.kDLOneAPI, place.get_device_id()
+        else:
+            raise ValueError(f"Unsupported tensor place: {place}")
+
     @property
     def __cuda_array_interface__(self):
         """Array view description for cuda tensors.
@@ -1374,6 +1410,7 @@ def monkey_patch_tensor():
         ("_use_gpudnn", _use_gpudnn),
         ("_md5sum", _md5sum),
         ("__cuda_array_interface__", __cuda_array_interface__),
+        ("__dlpack_device__", __dlpack_device__),
     ):
         setattr(core.eager.Tensor, method_name, method)
 

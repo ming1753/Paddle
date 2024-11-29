@@ -194,13 +194,13 @@ void DeleteUnusedTensors(const Scope &scope,
                                 ->mutable_value()
                                 ->MoveMemoryHolder());
     } else if (var->IsType<phi::TensorArray>()) {
-      auto *lod_tensor_arr = var->GetMutable<phi::TensorArray>();
-      for (auto &t : *lod_tensor_arr) {
+      auto *dense_tensor_arr = var->GetMutable<phi::TensorArray>();
+      for (auto &t : *dense_tensor_arr) {
         garbages.emplace_back(t.MoveMemoryHolder());
       }
-      // NOTE(wangxi): need clear the vector, otherwise lod_tensor_arr.size() is
-      // wrong, if size() decrease in next step, an error maybe occur.
-      lod_tensor_arr->clear();
+      // NOTE(wangxi): need clear the vector, otherwise dense_tensor_arr.size()
+      // is wrong, if size() decrease in next step, an error maybe occur.
+      dense_tensor_arr->clear();
     } else if (var->IsType<Strings>()) {
     } else {
       PADDLE_THROW(common::errors::Unimplemented(

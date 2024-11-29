@@ -289,6 +289,28 @@ if(WITH_XPU)
          common
          op_compat_infos
          type_info)
+elseif(WITH_NCCL OR WITH_RCCL)
+  cc_library(
+    operator
+    SRCS operator.cc transfer_scope_cache.cc unused_var_check.cc
+         infershape_utils.cc
+    DEPS op_info
+         proto_desc
+         tensor
+         scope
+         glog
+         shape_inference
+         data_transform
+         lod_tensor
+         op_kernel_type
+         op_call_stack
+         detail_op_handle
+         phi_utils
+         phi
+         common
+         op_compat_infos
+         type_info
+         process_group_nccl)
 else()
   cc_library(
     operator

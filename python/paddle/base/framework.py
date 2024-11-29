@@ -8468,7 +8468,12 @@ def auto_complete_op_role(program, op_role):
         yield
     finally:
         if paddle.framework.in_pir_mode() and is_dist_block(block):
-            always_forward_ops = ["pd_op.data", "builtin.parameter"]
+            always_forward_ops = [
+                "pd_op.data",
+                "builtin.parameter",
+                "cf.stack_create",
+                "cf.tuple_push",
+            ]
             set_op_roles(block, op_role, always_forward_ops)
 
 

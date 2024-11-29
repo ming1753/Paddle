@@ -57,7 +57,7 @@ struct TEST_API DenseTensorMeta {
   DenseTensorMeta(DataType dtype,
                   const DDim& dims,
                   DataLayout layout,
-                  const LoD& lod,
+                  const LoD& legacy_lod,
                   size_t offset = 0);
 
   DenseTensorMeta(const DenseTensorMeta& other);
@@ -80,7 +80,7 @@ struct TEST_API DenseTensorMeta {
   DDim dims;
   DataType dtype{DataType::UNDEFINED};
   DataLayout layout{DataLayout::NCHW};
-  LoD lod;
+  LoD legacy_lod;
   size_t offset{0};
   DDim strides;
 };
@@ -88,7 +88,7 @@ struct TEST_API DenseTensorMeta {
 inline bool operator==(const DenseTensorMeta& lhs, const DenseTensorMeta& rhs) {
   return (lhs.is_scalar == rhs.is_scalar) && lhs.use_gpudnn == rhs.use_gpudnn &&
          (lhs.dims == rhs.dims) && (lhs.dtype == rhs.dtype) &&
-         (lhs.layout == rhs.layout) && (lhs.lod == rhs.lod) &&
+         (lhs.layout == rhs.layout) && (lhs.legacy_lod == rhs.legacy_lod) &&
          (lhs.offset == rhs.offset) && (lhs.strides == rhs.strides);
 }
 
