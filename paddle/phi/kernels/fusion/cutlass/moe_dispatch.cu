@@ -46,26 +46,17 @@ void MoeDispatchKernel(const Context& ctx,
                        DenseTensor* expert_scales_float,
                        DenseTensor* top_k_indices,
                        DenseTensor* group_max_prob) {
-  // int token_rows = 0;
-  // auto input_dims = X.dims();
-  // if (input_dims.size() == 3) {
-  //     token_rows  = input_dims[0] * input_dims[1];
-  //   } else {
-  //    token_rows  = input_dims[0];
-  //   }
-  //   const int num_rows = token_rows ;
-  //     const int hidden_size = X.dims()[-1];
-  //     std::cout <<"hidden_size : "<< input_dims[0] <<input_dims[1]  <<
-  //     input_dims[]  <<std::endl; std::cout <<"hidden_size : "<< hidden_size
-  //     <<std::endl;
-  //   const int expert_num = gating_output.dims()[1];
-  PADDLE_ENFORCE_EQ(
-      X.dims().size(),
-      2,
-      common::errors::InvalidArgument("the input X should be a 2D tensor"));
-  const int num_rows = X.dims()[0];
-  const int hidden_size = X.dims()[1];
-  const int expert_num = gating_output.dims()[1];
+  int token_rows = 0;
+  auto input_dims = X.dims();
+  if (input_dims.size() == 3) {
+    token_rows = input_dims[0] * input_dims[1];
+  } else {
+    token_rows = input_dims[0];
+  }
+  const int num_rows = token_rows;
+  const int hidden_size = X.dims()[input_dims.size() - 1];
+  auto gating_dims = gating_output.dims();
+  const int expert_num = gating_dims[gating_dims.size() - 1];
 
   if (group_moe == true) {
     // Check if expert_num is divisible by moe_topk, else throw an error
