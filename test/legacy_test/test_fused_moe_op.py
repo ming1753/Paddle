@@ -181,6 +181,7 @@ class TestFusedMoEOp(OpTest):
             self.top_k,
             self.norm_topk_prob,
         )
+        fused_out = fused_out.reshape([-1, self.seq_len, self.d_model])
 
         return fused_out
 
@@ -212,7 +213,6 @@ class TestFusedMoEOp(OpTest):
             top_k_indices,
             max_prob,
         ) = moe_dispatch(tensor_x, gate_out, self.top_k, self.group_moe)
-
         # Apply feed-forward networks for experts
         ffn_out = moe_ffn(
             permute_input,
@@ -226,6 +226,11 @@ class TestFusedMoEOp(OpTest):
         )
 
         # Reduce results back to the original token order
+        # print(ffn_out.shape)
+        # print(expert_scales_float.shape)
+        # print(permute_indices_per_token.shape)
+        # print(top_k_indices.shape)
+
         final_out = moe_reduce(
             ffn_out,
             expert_scales_float,
@@ -234,6 +239,7 @@ class TestFusedMoEOp(OpTest):
             self.bmm_b1,
             norm_topk_prob=self.norm_topk_prob,
         )
+
         final_out = final_out.reshape([-1, self.seq_len, self.d_model])
         return final_out
 
@@ -292,8 +298,11 @@ class TestFusedMoEOp(OpTest):
 
     def test_fused_moe_op_new(self):
         ref_out = self.GetBaselineOut(self.tensor_x).cast(np.float32)
+
         fused_moe_out = self.GetFusedMoeOut(self.tensor_x).cast(np.float32)
+
         split_moe_out = self.GetSplitMoeOut(self.tensor_x).cast(np.float32)
+
         np.testing.assert_allclose(
             ref_out, fused_moe_out, rtol=self.rtol, atol=self.atol
         )
@@ -324,12 +333,11 @@ class TestFusedGoupeMoEOp(TestFusedMoEOp):
 
     def GetMoeOut(self, tensor_x):
         paddle.disable_static(place=paddle.CUDAPlace(0))
-
-        # Reshape input tensor
+        # Gate output
         tensor_x = tensor_x.reshape([-1, self.d_model])  # Shape: [1280, 768]
 
-        # Gate output
         gate_out = paddle.matmul(tensor_x.cast("float32"), self.gate_weight)
+        print(gate_out.shape)
         gate_out = gate_out.reshape([-1, self.num_expert])
 
         from paddle.incubate.nn.functional import (
@@ -591,7 +599,7 @@ class TestFusedMoEOpStatic(OpTest):
             tensor_x = paddle.static.data(
                 name="tensor_x",
                 shape=(self.batch_size, self.seq_len, self.d_model),
-                dtype=self.dtype,
+                dtype=self.x_type,
             )
             gate_weight = paddle.static.data(
                 name="gate_weight",
@@ -601,22 +609,22 @@ class TestFusedMoEOpStatic(OpTest):
             bmm_w0 = paddle.static.data(
                 name="bmm_w0",
                 shape=(self.num_expert, self.d_model, self.d_feedforward * 2),
-                dtype=self.dtype,
+                dtype=self.x_type,
             )
             bmm_b0 = paddle.static.data(
                 name="bmm_b0",
                 shape=(self.num_expert, 1, self.d_feedforward * 2),
-                dtype=self.dtype,
+                dtype=self.x_type,
             )
             bmm_w1 = paddle.static.data(
                 name="bmm_w1",
                 shape=(self.num_expert, self.d_feedforward, self.d_model),
-                dtype=self.dtype,
+                dtype=self.x_type,
             )
             bmm_b1 = paddle.static.data(
                 name="bmm_b1",
                 shape=(self.num_expert, 1, self.d_model),
-                dtype=self.dtype,
+                dtype=self.x_type,
             )
 
             fused_out = fused_moe(
@@ -646,8 +654,10 @@ class TestFusedMoEOpStatic(OpTest):
                 fetch_list=[fused_out],
             )
         paddle.disable_static()
-
-        return res[0]
+        final_hidden_states = np.reshape(
+            res[0], [self.batch_size, self.seq_len, self.d_model]
+        )
+        return final_hidden_states
 
     def GetBaselineOut(self, hidden_states):
         paddle.disable_static(place=paddle.CUDAPlace(0))
@@ -840,8 +850,10 @@ class TestFusedMoEOpStaticWint8(TestFusedMoEOpStatic):
                 fetch_list=[fused_out],
             )
         paddle.disable_static()
-
-        return res[0]
+        final_hidden_states = np.reshape(
+            res[0], [self.batch_size, self.seq_len, self.d_model]
+        )
+        return final_hidden_states
 
 
 if __name__ == "__main__":

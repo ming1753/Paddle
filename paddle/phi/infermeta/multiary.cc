@@ -6008,7 +6008,37 @@ void moe_dispatchInferMeta(const MetaTensor& X,
                            MetaTensor* permute_indices_per_token,
                            MetaTensor* expert_scales_float,
                            MetaTensor* top_k_indices,
-                           MetaTensor* group_max_prob) {}
+                           MetaTensor* group_max_prob) {
+  int token_rows = 0;
+  auto input_dims = X.dims();
+  if (input_dims.size() == 3) {
+    token_rows = input_dims[0] * input_dims[1];
+  } else {
+    token_rows = input_dims[0];
+  }
+  const int num_rows = token_rows;
+  const int hidden_size = X.dims()[input_dims.size() - 1];
+
+  permute_input->set_dims({moe_topk * num_rows, hidden_size});
+  permute_input->set_dtype(X.dtype());
+  permute_input->set_layout(X.layout());
+
+  permute_indices_per_token->set_dims({moe_topk, num_rows});
+  permute_indices_per_token->set_dtype(DataType::INT32);
+  permute_indices_per_token->set_layout(X.layout());
+
+  expert_scales_float->set_dims({num_rows, moe_topk});
+  expert_scales_float->set_dtype(DataType::FLOAT32);
+  expert_scales_float->set_layout(X.layout());
+
+  top_k_indices->set_dims({num_rows, moe_topk});
+  top_k_indices->set_dtype(DataType::INT32);
+  top_k_indices->set_layout(X.layout());
+
+  group_max_prob->set_dims({num_rows, moe_topk});
+  group_max_prob->set_dtype(DataType::FLOAT32);
+  group_max_prob->set_layout(X.layout());
+}
 
 void moe_ffnInferMeta(const MetaTensor& permute_input,
                       const MetaTensor& token_nums_per_expert,
@@ -6018,7 +6048,12 @@ void moe_ffnInferMeta(const MetaTensor& permute_input,
                       const MetaTensor& ffn1_scale,
                       const MetaTensor& ffn2_scale,
                       const std::string& quant_method,
-                      MetaTensor* ffn_out) {}
+                      MetaTensor* ffn_out) {
+  ffn_out->set_dims(permute_input.dims());
+  ffn_out->share_lod(permute_input);
+  ffn_out->set_dtype(permute_input.dtype());
+  ffn_out->set_layout(permute_input.layout());
+}
 
 void moe_reduceInferMeta(const MetaTensor& ffn_out,
                          const MetaTensor& expert_scales_float,
@@ -6026,7 +6061,15 @@ void moe_reduceInferMeta(const MetaTensor& ffn_out,
                          const MetaTensor& top_k_indices,
                          const MetaTensor& ffn2_bias,
                          const bool norm_topk_prob,
-                         MetaTensor* output) {}
+                         MetaTensor* output) {
+  auto ffn_out_dims = ffn_out.dims();
+  const int top_k = top_k_indices.dims()[1];
+  const int num_rows = ffn_out_dims[0] / top_k;
+  const int hidden_size = ffn_out_dims[1];
+  output->set_dims({num_rows, hidden_size});
+  output->set_dtype(ffn_out.dtype());
+  output->set_layout(ffn_out.layout());
+}
 
 void MaskedMultiheadAttentionInferMeta(const MetaTensor& x,
                                        const MetaTensor& cache_kv,
