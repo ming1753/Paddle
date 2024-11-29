@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import paddle
 from paddle import _C_ops
 from paddle.base.layer_helper import LayerHelper
 from paddle.framework import in_dynamic_or_pir_mode
@@ -81,20 +82,51 @@ def fused_moe(
     """
 
     if in_dynamic_or_pir_mode():
-        final_out = _C_ops.fused_moe(
-            x,
-            gate_weight,
+        gate_out = paddle.matmul(x.cast("float32"), gate_weight)
+        (
+            permute_input,
+            token_nums_per_expert,
+            permute_indices_per_token,
+            expert_scales_float,
+            top_k_indices,
+            max_prob,
+        ) = _C_ops.moe_dispatch(x, gate_out, moe_topk, group_moe)
+        # Apply feed-forward networks for experts
+        ffn_out = _C_ops.moe_ffn(
+            permute_input,
+            token_nums_per_expert,
             ffn1_weight,
-            ffn1_scale,
-            ffn1_bias,
             ffn2_weight,
-            ffn2_scale,
-            ffn2_bias,
+            ffn1_bias,
+            None if quant_method == "None" else ffn1_scale,
+            None if quant_method == "None" else ffn2_scale,
             quant_method,
-            moe_topk,
-            group_moe,
+        )
+        # Reduce results back to the original token order
+        final_out = _C_ops.moe_reduce(
+            ffn_out,
+            expert_scales_float,
+            permute_indices_per_token,
+            top_k_indices,
+            ffn2_bias,
             norm_topk_prob,
         )
+        # final_out = final_out.reshape([-1, self.seq_len, self.d_model])
+        # ——————————————————————————————————————————————————————————————————
+        # final_out = _C_ops.fused_moe(
+        #     x,
+        #     gate_weight,
+        #     ffn1_weight,
+        #     ffn1_scale,
+        #     ffn1_bias,
+        #     ffn2_weight,
+        #     ffn2_scale,
+        #     ffn2_bias,
+        #     quant_method,
+        #     moe_topk,
+        #     group_moe,
+        #     norm_topk_prob,
+        # )
         return final_out
     else:
         helper = LayerHelper('fused_moe', **locals())
