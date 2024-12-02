@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import paddle
 from paddle import _C_ops
 from paddle.base.layer_helper import LayerHelper
 from paddle.framework import in_dynamic_or_pir_mode
@@ -80,53 +79,21 @@ def fused_moe(
             [10, 128, 1024]
 
     """
-
     if in_dynamic_or_pir_mode():
-        gate_out = paddle.matmul(x.cast("float32"), gate_weight)
-        (
-            permute_input,
-            token_nums_per_expert,
-            permute_indices_per_token,
-            expert_scales_float,
-            top_k_indices,
-            max_prob,
-        ) = _C_ops.moe_dispatch(x, gate_out, moe_topk, group_moe)
-        # Apply feed-forward networks for experts
-        ffn_out = _C_ops.moe_ffn(
-            permute_input,
-            token_nums_per_expert,
+        final_out = _C_ops.fused_moe(
+            x,
+            gate_weight,
             ffn1_weight,
-            ffn2_weight,
+            ffn1_scale,
             ffn1_bias,
-            None if quant_method == "None" else ffn1_scale,
-            None if quant_method == "None" else ffn2_scale,
-            quant_method,
-        )
-        # Reduce results back to the original token order
-        final_out = _C_ops.moe_reduce(
-            ffn_out,
-            expert_scales_float,
-            permute_indices_per_token,
-            top_k_indices,
+            ffn2_weight,
+            ffn2_scale,
             ffn2_bias,
+            quant_method,
+            moe_topk,
+            group_moe,
             norm_topk_prob,
         )
-        # final_out = final_out.reshape([-1, self.seq_len, self.d_model])
-        # ——————————————————————————————————————————————————————————————————
-        # final_out = _C_ops.fused_moe(
-        #     x,
-        #     gate_weight,
-        #     ffn1_weight,
-        #     ffn1_scale,
-        #     ffn1_bias,
-        #     ffn2_weight,
-        #     ffn2_scale,
-        #     ffn2_bias,
-        #     quant_method,
-        #     moe_topk,
-        #     group_moe,
-        #     norm_topk_prob,
-        # )
         return final_out
     else:
         helper = LayerHelper('fused_moe', **locals())
@@ -158,7 +125,7 @@ def fused_moe(
                 'norm_topk_prob': norm_topk_prob,
             },
         )
-        return final_out
+    return final_out
 
 
 def moe_dispatch(
@@ -250,11 +217,11 @@ def moe_dispatch(
     top_k_indices = helper.create_variable_for_type_inference(dtype="int32")
     group_max_prob = helper.create_variable_for_type_inference(dtype="float32")
 
-    outputs_dict["out"] = permute_input
+    outputs_dict["permute_input"] = permute_input
     outputs_dict["token_nums_per_expert"] = token_nums_per_expert
     outputs_dict["permute_indices_per_token"] = permute_indices_per_token
     outputs_dict["expert_scales_float"] = expert_scales_float
-    outputs_dict["expert_for_source_row_tensor"] = top_k_indices
+    outputs_dict["top_k_indices"] = top_k_indices
     outputs_dict["group_max_prob"] = group_max_prob
 
     inputs = {"X": x}
