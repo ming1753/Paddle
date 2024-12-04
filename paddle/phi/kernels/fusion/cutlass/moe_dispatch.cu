@@ -81,9 +81,21 @@ void MoeDispatchKernel(const Context& ctx,
 
   const int num_moe_inputs = AlignTo16(num_rows * moe_topk);
   const int bytes = num_moe_inputs * sizeof(int);
-  DenseTensor ws_ptr_tensor = Empty<int8_t>(ctx, {bytes});
+  
+  CubKeyValueSorter sorter_;
+  sorter_.update_num_experts(expert_num);
+  
+  const int sorter_ws_size_bytes =
+      AlignTo16(sorter_.getWorkspaceSize(moe_topk * num_rows));
+  const int sort_tmp_in_out_size = num_moe_inputs * 2 * sizeof(int);
+  
+  DenseTensor ws_ptr_tensor = Empty<int8_t>(ctx, {bytes + sorter_ws_size_bytes + sort_tmp_in_out_size});
+  
   int8_t* ws_ptr = ws_ptr_tensor.data<int8_t>();
   int* source_rows_ = reinterpret_cast<int*>(ws_ptr);
+  int8_t* sorter_ws_ptr = reinterpret_cast<int8_t*>(ws_ptr + bytes);
+  int* permuted_experts_ = (int*)(sorter_ws_ptr + sorter_ws_size_bytes);
+  int* permuted_rows_ = permuted_experts_ + num_moe_inputs;
 
   top_k_indices->Resize({num_rows, moe_topk});
   int* expert_for_source_row = ctx.template Alloc<int>(top_k_indices);
@@ -96,8 +108,10 @@ void MoeDispatchKernel(const Context& ctx,
   const bool is_pow_2 =
       (expert_num != 0) && ((expert_num & (expert_num - 1)) == 0);
 
+  DenseTensor softmax_buffer;
+
   if (!is_pow_2 || expert_num > 256 || group_moe) {
-    DenseTensor softmax_buffer = Empty<float>(ctx, {num_rows * expert_num});
+    softmax_buffer = Empty<float>(ctx, {num_rows * expert_num});
     softmax_out_ = softmax_buffer.data<float>();
   } else {
     softmax_out_ = nullptr;
@@ -119,17 +133,6 @@ void MoeDispatchKernel(const Context& ctx,
       moe_topk,
       group_moe,
       ctx.stream());
-
-  CubKeyValueSorter sorter_;
-
-  const int sorter_ws_size_bytes =
-      AlignTo16(sorter_.getWorkspaceSize(moe_topk * num_rows));
-  DenseTensor sorter_ws = Empty<int8_t>(ctx, {sorter_ws_size_bytes});
-  int8_t* sorter_ws_ptr = sorter_ws.data<int8_t>();
-
-  DenseTensor permutation_buffer = Empty<int32_t>(ctx, {num_moe_inputs * 2});
-  int* permuted_experts_ = permutation_buffer.data<int32_t>();
-  int* permuted_rows_ = permuted_experts_ + num_moe_inputs;
 
   sorter_.run(reinterpret_cast<void*>(sorter_ws_ptr),
               sorter_ws_size_bytes,
