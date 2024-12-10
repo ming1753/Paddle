@@ -21,29 +21,6 @@ COMMON_DECLARE_bool(use_fast_math);
 namespace phi {
 namespace fusion {
 
-// gpuError_t GetNumBlocks(int64_t n, int *num_blocks) {
-//   std::cout << "[debug]" << std::endl;
-//   constexpr int kBlockSize = 128;
-//   constexpr int kNumWaves = 16;
-
-//   LOG(INFO) << "n=" << n;
-
-//   const int device_id = phi::backends::gpu::GetCurrentDeviceId();
-//   const int sm_count = phi::backends::gpu::GetGPUMultiProcessors(device_id);
-//   LOG(INFO) << "sm_count=" << sm_count;
-//   const int max_thread_per_multiprocessor =
-//       phi::backends::gpu::GetGPUMultiProcessors(device_id);
-//   LOG(INFO) << "max_thread_per_multiprocessor=" << sm_count;
-
-//   *num_blocks =
-//       std::max<int>(1,
-//                     std::min<int64_t>((n + kBlockSize - 1) / kBlockSize,
-//                                       sm_count *
-//                                       max_thread_per_multiprocessor /
-//                                           kBlockSize * kNumWaves));
-//   return gpuSuccess;
-// }
-
 template <typename T,
           typename Functor,
           int VecSize,
@@ -106,17 +83,9 @@ void LaunchActFFNGlu(const Context &dev_ctx,
   const int blocksize = 128;
   int grid_size = 1;
   Functor functor;
-  // LOG(INFO) << "hid_dim = " << hid_dim;
-  // LOG(INFO) << "PackSize = " << PackSize;
-  // LOG(INFO) << "hid_dim % PackSize = " << hid_dim % PackSize;
-  // LOG(INFO) << "elem_cnt: " << elem_cnt;
   switch (hid_dim % PackSize) {
     case 0:
       GetNumBlocks(elem_cnt / PackSize, &grid_size);
-      // LOG(INFO) << "n = " << elem_cnt / PackSize;
-      // LOG(INFO) << "sm_count = " <<
-      // static_cast<int>(phi::backends::gpu::GetGPUMultiProcessors(phi::backends::gpu::GetCurrentDeviceId()));
-      // LOG(INFO) << "grid_size: " << grid_size;
       ActFFNGlu<T, Functor, PackSize>
           <<<grid_size, blocksize, 0, dev_ctx.stream()>>>(bias,
                                                           functor,
@@ -128,7 +97,6 @@ void LaunchActFFNGlu(const Context &dev_ctx,
       break;
     default:
       GetNumBlocks(elem_cnt, &grid_size);
-      // LOG(INFO) << "grid_size: " << grid_size;
       ActFFNGlu<T, Functor, 1><<<grid_size, blocksize, 0, dev_ctx.stream()>>>(
           bias, functor, token_num, hid_dim, elem_cnt, load_func, store_func);
       break;
