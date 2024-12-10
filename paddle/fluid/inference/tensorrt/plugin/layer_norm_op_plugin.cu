@@ -277,7 +277,7 @@ int LayerNormPluginDynamic::enqueue(
   int begin_norm_axis = begin_norm_axis_;
   float eps = eps_;
 
-  std::vector<int> input_shape;
+  std::vector<int64_t> input_shape;
   for (int i = 0; i < input_dims.nbDims; i++) {
     input_shape.push_back(input_dims.d[i]);
   }
