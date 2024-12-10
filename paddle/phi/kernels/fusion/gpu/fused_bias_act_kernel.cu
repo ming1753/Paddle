@@ -406,11 +406,6 @@ void DispatchWithDtype(const Context &dev_ctx,
                              out);
     }
   } else {
-    // LOG(INFO) << "x numel: " << x.numel();
-    // if (bias_p != nullptr) {
-    //   LOG(INFO) << "bias numel: " << bias_p->numel();
-    // }
-    // LOG(INFO) << "out numel: " << out->numel();
     const T *bias_data = bias_p == nullptr ? nullptr : bias_p->data<T>();
     Load<T> load_func(x.data<T>());
     Store<T> store_func(dev_ctx.template Alloc<T>(out));
