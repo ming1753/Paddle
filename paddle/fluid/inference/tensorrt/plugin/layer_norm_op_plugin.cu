@@ -102,7 +102,7 @@ int LayerNormPlugin::enqueue(int batch_size,
   int64_t batched_mean_shape = mean_shape_[0] * input_dims.d[0];
   int64_t batched_variance_shape = variance_shape_[0] * input_dims.d[0];
 
-  std::vector<int> input_shape;
+  std::vector<int64_t> input_shape;
   input_shape.push_back(batch_size);
   for (int i = 0; i < input_dims.nbDims; i++) {
     input_shape.push_back(input_dims.d[i]);
