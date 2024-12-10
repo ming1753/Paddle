@@ -49,7 +49,7 @@ struct Load {
   explicit Load(const T *src) : src_(src) {}
 
   template <int VecSize>
-  __device__ void load(phi::AlignedVector<T, VecSize> *dst, int idx) {
+  __device__ void load(phi::AlignedVector<T, VecSize> *dst, size_t idx) {
     phi::Load<T, VecSize>(src_ + idx, dst);
   }
 
@@ -61,7 +61,7 @@ struct Store {
   explicit Store(T *dst) : dst_(dst) {}
 
   template <int VecSize>
-  __device__ void store(phi::AlignedVector<T, VecSize> &src, int idx) {
+  __device__ void store(phi::AlignedVector<T, VecSize> &src, size_t idx) {
     phi::Store<T, VecSize>(src, dst_ + idx);
   }
 
@@ -74,7 +74,7 @@ struct Store<T, true> {
       : dst_(dst), shift_(shift), smooth_(smooth), cols_(cols) {}
 
   template <int VecSize>
-  __device__ void store(phi::AlignedVector<T, VecSize> &src, int idx) {
+  __device__ void store(phi::AlignedVector<T, VecSize> &src, size_t idx) {
     using Vec = phi::AlignedVector<T, VecSize>;
     Vec shift_vec;
     Vec smooth_vec;
@@ -100,7 +100,7 @@ struct DequantLoad {
       : src_(src), dequant_scales_(dequant_scales), cols_(cols) {}
 
   template <int VecSize>
-  __device__ void load(phi::AlignedVector<T, VecSize> *dst, int idx) {
+  __device__ void load(phi::AlignedVector<T, VecSize> *dst, size_t idx) {
     using SrcVec = phi::AlignedVector<int32_t, VecSize>;
     using DstVec = phi::AlignedVector<T, VecSize>;
     using ScaleVec = phi::AlignedVector<float, VecSize>;
@@ -139,7 +139,7 @@ struct QuantStore {
 
   template <int VecSize>
   __device__ void store(phi::AlignedVector<T, VecSize> &src,  // NOLINT
-                        int idx) {                            // NOLINT
+                        size_t idx) {                         // NOLINT
     using DstVec = phi::AlignedVector<int8_t, VecSize>;
 
     DstVec dst_vec;
@@ -183,7 +183,7 @@ struct QuantStore<T, true> {
 
   template <int VecSize>
   __device__ void store(phi::AlignedVector<T, VecSize> &src,  // NOLINT
-                        int idx) {                            // NOLINT
+                        size_t idx) {                         // NOLINT
     using DstVec = phi::AlignedVector<int8_t, VecSize>;
     using Vec = phi::AlignedVector<T, VecSize>;
 
