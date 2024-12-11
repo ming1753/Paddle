@@ -1,4 +1,4 @@
-# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+# Copyright (c) 2024 PaddlePaddle Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,13 +21,12 @@ import paddle
 import paddle.distributed as dist
 import paddle.nn.functional as F
 from paddle import nn
-from paddle.distributed.auto_parallel.high_level_api import (
-    ToDistributedConfig,
-    to_distributed,
-)
+from paddle.distributed import to_distributed
+from paddle.distributed.auto_parallel.high_level_api import ToDistributedConfig
 
+EPOCHES = 1
 VOCAB_SIZE = 8000
-BATCH_NUM = 3
+BATCH_NUM = 2
 BATCH_SIZE = 4
 HIDDEN_SIZE = 2048
 INTERMEDIATE_SIZE = 4096
@@ -555,13 +554,13 @@ class LlamaForCausalLM(paddle.nn.Layer):
 
 
 class RandomDataset(paddle.io.Dataset):
-    def __init__(self, images, labels, num_samples):
-        self.images = images
+    def __init__(self, inputs, labels, num_samples):
+        self.inputs = inputs
         self.labels = labels
         self.num_samples = num_samples
 
     def __getitem__(self, idx):
-        return self.images[idx], self.labels[idx]
+        return self.inputs[idx], self.labels[idx]
 
     def __len__(self):
         return self.num_samples
@@ -573,11 +572,25 @@ class TestLlamaDecoderForSemiAutoParallel:
         self._backend = os.getenv("backend", "gpu")
         self._seed = eval(os.getenv("seed", "2023"))
 
-        self._mesh = mesh = dist.ProcessMesh(
-            [[[0, 1], [2, 3]], [[4, 5], [6, 7]]], dim_names=["pp", "dp", "mp"]
-        )
+        self._device_num = os.getenv("num_of_devices", 8)
+        self._node_num = 1
+
+        np.random.seed(self._seed)
+        paddle.seed(self._seed)
         self._model = LlamaForCausalLM("demo_llama")
 
+        # ensure that input data between dp is different and data within dp is the same
+        self._mesh = dist.ProcessMesh(
+            [[[0, 1], [2, 3]], [[4, 5], [6, 7]]], dim_names=["pp", "dp", "mp"]
+        )
+        if "dp" in self._mesh.dim_names:
+            dp_seed = self._mesh.get_rank_by_dim_and_process_id(
+                "dp", dist.get_rank()
+            )
+        else:
+            dp_seed = 0
+        np.random.seed(self._seed + dp_seed)
+        paddle.seed(self._seed + dp_seed)
         self._input_seqs = np.random.randint(
             low=0, high=1024, size=(BATCH_SIZE * BATCH_NUM, SEQ_LENGTH)
         ).astype("int64")
@@ -587,8 +600,11 @@ class TestLlamaDecoderForSemiAutoParallel:
         self._dataset = RandomDataset(
             self._input_seqs, self._labels, BATCH_SIZE * BATCH_NUM
         )
+        self._sampler = paddle.io.BatchSampler(
+            self._dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=True
+        )
         self._loader = paddle.io.DataLoader(
-            self._dataset, batch_size=BATCH_SIZE
+            self._dataset, batch_sampler=self._sampler
         )
         self._opt = paddle.optimizer.SGD(
             learning_rate=0.1, parameters=self._model.parameters()
@@ -606,9 +622,23 @@ class TestLlamaDecoderForSemiAutoParallel:
         dist_config.sequence_parallel = True
 
         # # wrap model by using **to_distributed**
-        dist_model, dist_loader, dist_opt = to_distributed(
-            self._model, self._loader, self._opt, self._mesh, dist_config
+        dist_model, dist_opt, dist_loader = to_distributed(
+            self._model,
+            self._opt,
+            self._loader,
+            self._device_num,
+            self._node_num,
+            dist_config,
         )
+
+        for epoch in range(EPOCHES):
+            dist_model.train()
+            for i, data in enumerate(dist_loader()):
+                inputs, labels = data
+                loss, _ = dist_model(inputs, labels=labels)
+                loss.backward()
+                dist_opt.step()
+                dist_opt.clear_grad()
 
     def run_test_case(self):
         if self._backend == "gpu":

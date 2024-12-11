@@ -160,7 +160,7 @@ ir::Expr CopyedReplaceExpr(const Expr& source,
       candidates.size(),
       ::common::errors::InvalidArgument(
           "In ReplaceExpr, the size of Vars to be replaced must be equal to "
-          "the size of cadidate Exprs! Please check."));
+          "the size of candidate Exprs! Please check."));
   auto copyed_source = ir::ir_utils::IRCopy(source);
   if (replaced.empty()) return copyed_source;
   std::map<Var, Expr, ir::CompVar> replacing_map;

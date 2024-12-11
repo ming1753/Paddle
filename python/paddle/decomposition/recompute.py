@@ -14,8 +14,10 @@
 from __future__ import annotations
 
 import functools
+import logging
 import math
 import os
+import time
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -74,6 +76,7 @@ DEFAULT_RECOMPUTABLE_OPS: list[str] = [
     "pd_op.where",
     "pd_op.pow",
     "pd_op.shape",
+    "pd_op.shape64",
     "pd_op.slice",
     "pd_op.squeeze",
     "pd_op.unsqueeze",
@@ -127,6 +130,12 @@ DEFAULT_RECOMPUTABLE_OPS: list[str] = [
     "pd_op.isnan",
     # "pd_op.gather",
     "pd_op.sigmoid",
+]
+
+# define the ops that are tending to recompute.These ops are more likely to save memory and get fused.
+TENDING_TO_RECOMPUTE_OPS: list[str] = [
+    "pd_op.full_int_array",
+    "pd_op.full",
 ]
 
 VIEW_OPS: list[str] = []
@@ -374,9 +383,12 @@ def auto_recompute(
             (%11) = "pd_op.fetch" (%10) {col:(Int32)0,is_persistable:[true],name:"fetch0",stop_gradient:[false]} : (pd_op.tensor<4096x4096xf32>) -> pd_op.tensor<4096x4096xf32>
         }
     '''
+    DebugPrint("program before recompute:", program)
     # 1. find smart recompute needed saved values by min-cut algorithm
     # 1.1 classify value nodes
     import networkx as nx
+
+    start_time = time.time()
 
     # model value as graph's node, op as graph's edge
     (
@@ -410,6 +422,7 @@ def auto_recompute(
 
     random_ops = RANDOM_OPS
     compute_intensive_ops = COMPUTE_INTENSIVE_OPS
+    tending_to_recompute_ops = TENDING_TO_RECOMPUTE_OPS
 
     unrecomputable_ops = random_ops + compute_intensive_ops
 
@@ -462,6 +475,9 @@ def auto_recompute(
         if AGGRESSIVE_RECOMPUTATION:
             return value_node.get_defining_op().name() in unrecomputable_ops
         else:
+            if value_node.get_defining_op().name() in tending_to_recompute_ops:
+                return False
+
             if value_node.get_defining_op().name() not in recomputable_ops:
                 return True
 
@@ -615,7 +631,6 @@ def auto_recompute(
     # (TODO: wanghao107): remove it and fix model
     # saved_values = cut_value_nodes | inputs
     saved_values = cut_value_nodes
-    DebugPrint("program before recompute:", program)
     # 2.patition the joint graph by saved values.
     (
         program_after_recompute,
@@ -629,6 +644,10 @@ def auto_recompute(
         backward_op_start_idx,
     )
     DebugPrint("program after recompute:", program_after_recompute)
+    end_time = time.time()
+    logging.info(
+        f"Time of auto recompute program: ***** [ {end_time - start_time} ] ***** seconds."
+    )
     return program_after_recompute, fwd_op_end_idx_after_recompute
 
 
@@ -717,6 +736,13 @@ def replace_mid_values_with_forward_subgraph(
             define_op = recompute_value.get_defining_op()
             if define_op in marked_recompute_ops or define_op is None:
                 return
+            if define_op.name() in [
+                "builtin.parameter",
+                "pd_op.data",
+            ]:
+                if recompute_value not in needed_saved_values:
+                    needed_saved_values.add(recompute_value)
+                return
             op_inputs = define_op.operands_source()
             if len(op_inputs) == 0 and define_op.name() not in [
                 "pd_op.full",
@@ -730,7 +756,7 @@ def replace_mid_values_with_forward_subgraph(
                     raise RuntimeError("op not found in program")
 
                 raise Exception(
-                    f"Every path to recompute value {recompute_value} must have saved value or starting point of the path is one of op in [pd_op.full, pd_op.full_int_array], but find {define_op.name()} op"
+                    f"Every path to recompute value {recompute_value} must have saved value or starting point of the path is one of op in [pd_op.full, pd_op.full_int_array], but find {define_op.name()} op, op ir is {define_op}"
                 )
             for op_input in op_inputs:
                 if op_input in saved_values:
@@ -828,39 +854,36 @@ def replace_mid_values_with_forward_subgraph(
 
 def classify_value_node(program, grad_outputs, fwd_op_end_idx):
     all_ops = program.global_block().ops
-    required_fw_value_nodes = backward_utils.ValueSet()
     required_fw_ops = set(all_ops[: fwd_op_end_idx + 1])
-    for required_fw_op in required_fw_ops:
-        fw_op_outputs = required_fw_op.results()
-        required_fw_value_nodes = (
-            required_fw_value_nodes | backward_utils.ValueSet(fw_op_outputs)
-        )
-    required_bw_value_nodes = backward_utils.ValueSet()
-    required_bw_ops = set()
-    for grad_output in grad_outputs:
-        required_bw_ops = required_bw_ops | find_child_ops(grad_output)
-        required_bw_ops.add(grad_output.get_defining_op())
-    for required_bw_op in required_bw_ops:
-        bw_op_outputs = (
-            required_bw_op.results() if required_bw_op is not None else []
-        )
-        required_bw_value_nodes = (
-            required_bw_value_nodes | backward_utils.ValueSet(bw_op_outputs)
-        )
-    unclaimed_value_nodes = backward_utils.ValueSet()
-    unclaimed_ops = {
-        op
-        for op in all_ops
-        if op not in required_fw_ops and op not in required_bw_ops
-    }
-    for unclaimed_op in unclaimed_ops:
-        unclaimed_op_outputs = unclaimed_op.results()
-        unclaimed_value_nodes = unclaimed_value_nodes | backward_utils.ValueSet(
-            unclaimed_op_outputs
-        )
+
+    required_fw_op_idxs = list(range(0, fwd_op_end_idx + 1))
+    required_fw_value_nodes = backward_utils.ValueSet(
+        program.global_block().get_values_by_op_idx(required_fw_op_idxs)
+    )
+
+    required_bw_op_idxs = list(range(fwd_op_end_idx + 1, len(all_ops)))
+    required_bw_value_nodes = backward_utils.ValueSet(
+        program.global_block().get_values_by_op_idx(required_bw_op_idxs)
+    )
+
+    # TODO(chenxi67) optimize classify algorithm by using unclaimed_ops. Remove them to fasten bw_ops detecting time.
+    # unclaimed_ops = {
+    #     op
+    #     for op in all_ops
+    #     if op not in required_fw_ops and op not in required_bw_ops
+    # }
+
+    # unclaimed_op_idxs = []
+    # for idx, op in enumerate(all_ops):
+    #     if op in unclaimed_ops:
+    #         unclaimed_op_idxs.append(idx)
+    # unclaimed_value_nodes = backward_utils.ValueSet(
+    #     program.global_block().get_values_by_op_idx(unclaimed_op_idxs)
+    # )
+
     return (
         required_fw_value_nodes,
-        required_bw_value_nodes | unclaimed_value_nodes,
+        required_bw_value_nodes,
         backward_utils.ValueSet(),
     )
 
@@ -1079,25 +1102,3 @@ def find_parent_ops(value):
         return parent_ops
 
     return _find_parent_ops(value)
-
-
-def find_child_ops(value):
-    visited = backward_utils.ValueSet()
-
-    def _find_child_ops(value):
-        child_ops = set()
-        if value in visited:
-            return child_ops
-        visited.add(value)
-        used_ops = value.all_used_ops()
-        child_ops |= set(used_ops)
-        op_results = backward_utils.ValueSet()
-        for used_op in used_ops:
-            op_results = op_results | backward_utils.ValueSet(used_op.results())
-        for op_result in op_results:
-            if not op_result.initialized():
-                continue
-            child_ops = child_ops | _find_child_ops(op_result)
-        return child_ops
-
-    return _find_child_ops(value)

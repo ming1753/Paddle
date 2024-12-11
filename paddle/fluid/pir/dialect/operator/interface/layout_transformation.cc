@@ -21,6 +21,9 @@
 #include "paddle/pir/include/core/builtin_attribute.h"
 #include "paddle/pir/include/core/ir_context.h"
 #include "paddle/pir/include/pass/utils.h"
+#ifdef PADDLE_WITH_CINN
+#include "paddle/pir/include/dialect/shape/utils/shape_analysis.h"
+#endif
 
 namespace paddle::dialect {
 
@@ -32,8 +35,28 @@ void RewriteByInfermeta(pir::Operation* op, common::DataLayout new_layout) {
     op->result(i).set_type(new_outputs[i]);
   }
 
+  pir::TransLayoutCallbackFn callback = nullptr;
+#ifdef PADDLE_WITH_CINN
+  auto& shape_analysis =
+      pir::ShapeAnalysisManager::Instance().Get(op->GetParentProgram());
+  const pir::TransLayoutType trans_layout_type = [&] {
+    if (new_layout == common::DataLayout::NHWC) {
+      return pir::TransLayoutType::NCHW2NHWC;
+    }
+    if (new_layout == common::DataLayout::NHWC) {
+      return pir::TransLayoutType::NHWC2NCHW;
+    }
+    return pir::TransLayoutType::INVALID;
+  }();
+
+  if (trans_layout_type != pir::TransLayoutType::INVALID) {
+    callback = [&](pir::Value value, common::DataLayout new_layout) -> void {
+      shape_analysis.UpdateShapeOrDataByTransLayout(value, trans_layout_type);
+    };
+  }
+#endif
   for (auto value : RelevantOutputsImpl<ConcreteOp>(op)) {
-    pir::SetNewLayoutForValue(value, new_layout);
+    pir::SetNewLayoutForValue(value, new_layout, callback);
   }
 }
 
@@ -88,6 +111,32 @@ common::DataLayout PreferLayoutImpl<Conv2dOp>(pir::Operation* op) {
 
   auto concrete_op = op->dyn_cast<Conv2dOp>();
   if (auto in = concrete_op.input()) {
+    if (auto in_type = in.type()) {
+      if (in_type.isa<DenseTensorType>()) {
+        if (auto tensor_type = in_type.dyn_cast<DenseTensorType>()) {
+          if (tensor_type.dtype().isa<pir::Float16Type>()) {
+            return common::DataLayout::NHWC;
+          }
+        }
+      }
+    }
+  }
+
+  return common::StringToDataLayout(data_format_attr.AsString());
+}
+
+template <>
+common::DataLayout PreferLayoutImpl<Conv2dTransposeOp>(pir::Operation* op) {
+  auto data_format_attr = op->attribute<pir::StrAttribute>("data_format");
+  if (!data_format_attr) {
+    PADDLE_THROW(common::errors::InvalidArgument(
+        "op (%s) should have attribute `data_format`, but got %s",
+        op,
+        data_format_attr));
+  }
+
+  auto concrete_op = op->dyn_cast<Conv2dTransposeOp>();
+  if (auto in = concrete_op.x()) {
     if (auto in_type = in.type()) {
       if (in_type.isa<DenseTensorType>()) {
         if (auto tensor_type = in_type.dyn_cast<DenseTensorType>()) {
@@ -350,6 +399,33 @@ void RewriteByLayoutImpl<ConcatOp>(pir::Operation* op,
 
   // infer new meta for concat
   RewriteByInfermeta<ConcatOp>(op, new_layout);
+}
+
+template <>
+void RewriteByLayoutImpl<ArgmaxOp>(pir::Operation* op,
+                                   common::DataLayout new_layout) {
+  auto concrete_op = op->dyn_cast<ArgmaxOp>();
+  auto axis = concrete_op.axis();
+  if (!axis || !(axis.defining_op()->isa<FullOp>())) {
+    PADDLE_THROW(common::errors::InvalidArgument(
+        "Argmax's axis must be processed when rewrite by layout."));
+  }
+
+  auto axis_op = axis.defining_op()->dyn_cast<FullOp>();
+  int axis_value =
+      axis_op.attribute("value").dyn_cast<ScalarAttribute>().data().to<int>();
+
+  PADDLE_ENFORCE_EQ(
+      axis_value,
+      1,
+      common::errors::InvalidArgument(
+          "Argmax's axis was expected as 1, but got %d", axis_value));
+  axis.defining_op()->set_attribute(
+      "value",
+      ScalarAttribute::get(pir::IrContext::Instance(), phi::Scalar(3)));
+
+  // infer new meta for argmax
+  RewriteByInfermeta<ArgmaxOp>(op, new_layout);
 }
 
 template <>

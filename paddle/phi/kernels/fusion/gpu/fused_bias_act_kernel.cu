@@ -28,9 +28,9 @@ template <typename T,
           typename StoreFunc>
 __global__ void ActFFNGlu(const T *bias,
                           Functor act_functor,
-                          const int token_num,
-                          const int hid_dim,
-                          const int elem_num,
+                          const int64_t token_num,
+                          const int64_t hid_dim,
+                          const int64_t elem_num,
                           LoadFunc load_func,
                           StoreFunc store_func) {
   using LoadT = phi::AlignedVector<T, VecSize>;
@@ -38,15 +38,15 @@ __global__ void ActFFNGlu(const T *bias,
   LoadT src_vec2;
   LoadT bias_vec1;
   LoadT bias_vec2;
-  const int global_tid = blockIdx.x * blockDim.x + threadIdx.x;
-  for (int i = global_tid * VecSize; i < elem_num;
+  const int64_t global_tid = blockIdx.x * blockDim.x + threadIdx.x;
+  for (int64_t i = global_tid * VecSize; i < elem_num;
        i += gridDim.x * blockDim.x * VecSize) {
-    int bi = i / hid_dim;
-    int idx = i % hid_dim;
+    int64_t bi = i / hid_dim;
+    int64_t idx = i % hid_dim;
 
-    load_func.template load<VecSize>(&src_vec1, bi * hid_dim * 2 + idx);
-    load_func.template load<VecSize>(&src_vec2,
-                                     bi * hid_dim * 2 + idx + hid_dim);
+    int64_t index = bi * hid_dim * 2 + idx;
+    load_func.template load<VecSize>(&src_vec1, index);
+    load_func.template load<VecSize>(&src_vec2, index + hid_dim);
 
     if (bias) {
       phi::Load<T, VecSize>(&bias[idx], &bias_vec1);
@@ -73,13 +73,13 @@ template <typename T,
           typename LoadT = T>
 void LaunchActFFNGlu(const Context &dev_ctx,
                      const T *bias,
-                     const int token_num,
-                     const int hid_dim,
+                     const int64_t token_num,
+                     const int64_t hid_dim,
                      LoadFunc load_func,
                      StoreFunc store_func) {
   constexpr int VecSize = 16;
   constexpr int PackSize = VecSize / sizeof(LoadT);
-  const int elem_cnt = token_num * hid_dim;
+  const int64_t elem_cnt = token_num * hid_dim;
   const int blocksize = 128;
   int grid_size = 1;
   Functor functor;
@@ -110,9 +110,9 @@ template <typename T,
           typename StoreFunc>
 __global__ void BiasAct(const T *bias,
                         Functor act_functor,
-                        const int rows,
-                        const int cols,
-                        const int elem_num,
+                        const int64_t rows,
+                        const int64_t cols,
+                        const int64_t elem_num,
                         LoadFunc load_func,
                         StoreFunc store_func) {
   using LoadT = phi::AlignedVector<T, VecSize>;
@@ -121,16 +121,16 @@ __global__ void BiasAct(const T *bias,
 
 // Zero Initialize BiasVec.
 #pragma unroll
-  for (int unroll_idx = 0; unroll_idx < VecSize; unroll_idx++) {
+  for (int64_t unroll_idx = 0; unroll_idx < VecSize; unroll_idx++) {
     bias_vec[unroll_idx] = 0;
   }
 
-  const int global_tid = blockIdx.x * blockDim.x + threadIdx.x;
-  for (int i = global_tid * VecSize; i < elem_num;
+  const int64_t global_tid = blockIdx.x * blockDim.x + threadIdx.x;
+  for (int64_t i = global_tid * VecSize; i < elem_num;
        i += gridDim.x * blockDim.x * VecSize) {
-    int row_idx = i / cols;
-    int col_idx = i % cols;
-    int linear_idx = row_idx * cols + col_idx;
+    int64_t row_idx = i / cols;
+    int64_t col_idx = i % cols;
+    int64_t linear_idx = row_idx * cols + col_idx;
     load_func.template load<VecSize>(&src_vec, linear_idx);
     if (bias) {
       phi::Load<T, VecSize>(&bias[col_idx], &bias_vec);
@@ -154,13 +154,13 @@ template <typename T,
           typename LoadT = T>
 void LaunchBiasAct(const Context &dev_ctx,
                    const T *bias,
-                   const int token_num,
-                   const int hid_dim,
+                   const int64_t token_num,
+                   const int64_t hid_dim,
                    LoadFunc load_func,
                    StoreFunc store_func) {
   constexpr int VecSize = 16;
   constexpr int PackSize = VecSize / sizeof(LoadT);
-  const int elem_cnt = token_num * hid_dim;
+  const int64_t elem_cnt = token_num * hid_dim;
   const int blocksize = 128;
   int grid_size = 1;
   Functor functor;
@@ -192,8 +192,8 @@ template <typename T,
 void ComputeImpl(const Context &dev_ctx,
                  const T *bias_data,
                  const std::string &act_method,
-                 int rows,
-                 int cols,
+                 int64_t rows,
+                 int64_t cols,
                  LoadFunc load_func,
                  StoreFunc store_func) {
   if (act_method == "geglu") {
@@ -260,8 +260,8 @@ void DispatchComputeImpl(const Context &dev_ctx,
                          const DenseTensor *bias,
                          const DenseTensor *dequant_scales,
                          const std::string &act_method,
-                         int rows,
-                         int cols,
+                         int64_t rows,
+                         int64_t cols,
                          const float quant_scale,
                          const int quant_round_type,
                          const float quant_max_bound,
@@ -309,8 +309,8 @@ void DispatchComputeImpl(const Context &dev_ctx,
                          const DenseTensor *shift,
                          const DenseTensor *smooth,
                          const std::string &act_method,
-                         int rows,
-                         int cols,
+                         int64_t rows,
+                         int64_t cols,
                          const float quant_scale,
                          const int quant_round_type,
                          const float quant_max_bound,
@@ -390,8 +390,8 @@ void DispatchWithDtype(const Context &dev_ctx,
                        const paddle::optional<DenseTensor> &shift,
                        const paddle::optional<DenseTensor> &smooth,
                        const std::string &act_method,
-                       int rows,
-                       int cols,
+                       int64_t rows,
+                       int64_t cols,
                        float quant_scale,
                        int quant_round_type,
                        float quant_max_bound,
@@ -456,8 +456,8 @@ void DispatchWithDtype(const Context &dev_ctx,
                        const paddle::optional<DenseTensor> &shift,
                        const paddle::optional<DenseTensor> &smooth,
                        const std::string &act_method,
-                       int rows,
-                       int cols,
+                       int64_t rows,
+                       int64_t cols,
                        float quant_scale,
                        int quant_round_type,
                        float quant_max_bound,
@@ -479,8 +479,8 @@ void FusedBiasActKernel(const Context &dev_ctx,
                         float quant_max_bound,
                         float quant_min_bound,
                         DenseTensor *out) {
-  int cols = x.dims()[x.dims().size() - 1];
-  int rows = x.numel() / cols;
+  int64_t cols = x.dims()[x.dims().size() - 1];
+  int64_t rows = x.numel() / cols;
   if (x.dtype() == phi::DataType::INT32) {
     if (compute_dtype == "bf16") {
       DispatchWithDtype<phi::dtype::bfloat16, Context>(

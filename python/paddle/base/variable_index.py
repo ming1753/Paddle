@@ -20,6 +20,7 @@ import paddle
 from . import core, unique_name
 
 MAX_INTEGER = 2**31 - 1
+MIN_INTEGER = -(2**31)
 
 
 def replace_ellipsis(var, item):
@@ -296,8 +297,7 @@ def parse_index(x, indices):
                 # the unpack size would cause error.
                 # We raises IndexError here to support grammar like `a, b = var`
                 raise IndexError(
-                    "slice_item %d at dim %d should be >= 0 and < x.shape[%d]: %d"
-                    % (slice_item, dim, dim, x.shape[dim])
+                    f"slice_item {slice_item} at dim {dim} should be >= 0 and < x.shape[{dim}]: {x.shape[dim]}"
                 )
             # not calculate result to reduce call times for slice OP.
             decrease_axes.append(dim)
@@ -335,7 +335,7 @@ def parse_index(x, indices):
             if start is None:
                 start = 0 if step > 0 else MAX_INTEGER
             if end is None:
-                end = MAX_INTEGER if step > 0 else -1
+                end = MAX_INTEGER if step > 0 else MIN_INTEGER
 
             if not (
                 is_tensor_array
@@ -343,7 +343,7 @@ def parse_index(x, indices):
                 or isinstance(step, (paddle.base.Variable, paddle.pir.Value))
             ):
                 if x.shape[dim] != -1 and end >= x.shape[dim]:
-                    end = MAX_INTEGER if step > 0 else -1
+                    end = MAX_INTEGER if step > 0 else x.shape[dim]
             estimated_dim += 1
             dim += 1
 

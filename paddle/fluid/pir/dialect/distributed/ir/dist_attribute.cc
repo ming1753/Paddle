@@ -15,8 +15,7 @@
 #include "paddle/fluid/pir/dialect/distributed/ir/dist_attribute.h"
 #include "paddle/fluid/pir/dialect/distributed/ir/attribute_storage.h"
 #include "paddle/phi/core/enforce.h"
-namespace paddle {
-namespace dialect {
+namespace paddle::dialect {
 ///
 /// \brief ProcessMeshAttribute interface.
 ///
@@ -78,7 +77,7 @@ phi::distributed::Placements TensorDistAttribute::placements() const {
       auto& p = placements[mesh_id];
       if (p->is_shard()) {
         PADDLE_THROW(common::errors::PreconditionNotMet(
-            "ProcessMesh dimension cann't be mapped to two  dimension of the "
+            "ProcessMesh dimension can't be mapped to two  dimension of the "
             "same tensor: {%d} and {%d}",
             i,
             dynamic_cast<phi::distributed::Shard&>(*p).get_dim()));
@@ -163,8 +162,7 @@ OperationDistAttribute OperationDistAttribute::get(
   return Base::get(ctx, mesh, operands, results, chunk_id);
 }
 
-}  // namespace dialect
-}  // namespace paddle
+}  // namespace paddle::dialect
 IR_DEFINE_EXPLICIT_TYPE_ID(paddle::dialect::ProcessMeshAttribute)
 IR_DEFINE_EXPLICIT_TYPE_ID(paddle::dialect::TensorDistAttribute)
 IR_DEFINE_EXPLICIT_TYPE_ID(paddle::dialect::OperationDistAttribute)

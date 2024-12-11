@@ -318,10 +318,11 @@ def normalize_pir_program(program, feed_vars, fetch_vars, **kwargs):
     fetch_vars_tuple = []
     for i, var in enumerate(clone_fetch_vars):
         scale_op = var.get_defining_op()
+        orig_var = var
         if scale_op.name() == "pd_op.scale":
-            orig_var = scale_op.operand_source(0)
-        else:
-            orig_var = var
+            full_op = scale_op.operand_source(1).get_defining_op()
+            if full_op.has_attr("value") and full_op.attrs()['value'] == 1.0:
+                orig_var = scale_op.operand_source(0)
         if orig_var.has_name:
             fetch_vars_tuple.append((orig_var, orig_var.name))
         else:

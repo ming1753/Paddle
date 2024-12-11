@@ -22,6 +22,10 @@ from paddle.framework import core
 from paddle.static import InputSpec
 
 
+def addmm_net(input, x, y):
+    return paddle.addmm(input, x, y, alpha=1.0, beta=2.0)
+
+
 def apply_to_static(net, use_cinn, input_spec=None):
     build_strategy = paddle.static.BuildStrategy()
     build_strategy.build_cinn_pass = use_cinn
@@ -910,6 +914,28 @@ class TestPrimThree(unittest.TestCase):
         res = self.base_net("prim")
         for ref, actual in zip(res_ref, res):
             np.testing.assert_allclose(ref, actual, rtol=self.tol)
+
+
+class TestPrimAddmm(TestPrimThree):
+    def setUp(self):
+        np.random.seed(2024)
+        paddle.seed(2024)
+        self.shape_x = [30, 50]
+        self.shape_y = [30, 80]
+        self.shape_z = [80, 50]
+        self.dtype_x = "float32"
+        self.dtype_y = "float32"
+        self.dtype_z = "float32"
+        self.init_x_shape = [None, None]
+        self.init_y_shape = [None, None]
+        self.init_z_shape = [None, None]
+        self.x = np.random.random(self.shape_x).astype(self.dtype_x)
+        self.y = np.random.random(self.shape_y).astype(self.dtype_y)
+        self.z = np.random.random(self.shape_z).astype(self.dtype_z)
+        self.net = addmm_net
+        self.necessary_ops = "pd_op.addmm"
+        self.enable_cinn = False
+        self.tol = 1e-6
 
 
 class TestPrimLerp1(TestPrimThree):

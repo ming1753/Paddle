@@ -52,6 +52,7 @@ from ...utils import (
     map_if,
     switch_symbol_registry,
 )
+from ...utils.exceptions import BreakGraphError
 from ..instruction_utils import get_instructions
 from .guard import Guard, StringifiedExpression, make_guard
 from .mutable_data import MutationDel, MutationNew, MutationSet
@@ -433,7 +434,7 @@ class FunctionGraph:
         symbolic_inputs = self._find_tensor_inputs(input_names)
         compiled_fn = self.sir_ctx.compile_fn(
             statement_ir.name,
-            [var.meta.to_input_spec() for var in symbolic_inputs],
+            tuple(var.meta.to_input_spec() for var in symbolic_inputs),
             **self._kwargs,
         )
         return compiled_fn, (statement_ir, symbolic_inputs, symbolic_outputs)
@@ -661,7 +662,9 @@ class FunctionGraph:
                         for arg in flatten_vars
                     ):
                         # TODO(zrr1999): maybe we can continue to fallback to all args are constant.
-                        raise e
+                        raise BreakGraphError(
+                            f"InferMeta encount {type(e)}, but all args are not symbolic."
+                        )
 
                     args, kwargs = map_if(
                         (args, kwargs),
@@ -686,7 +689,9 @@ class FunctionGraph:
                         isinstance(arg, SymbolicVariable)
                         for arg in flatten_vars
                     ):
-                        raise e
+                        raise BreakGraphError(
+                            f"InferMeta encount {type(e)}, but all args are not symbolic."
+                        )
 
                     args, kwargs = map_structure(
                         replace_symbolic_var_with_constant_var, (args, kwargs)

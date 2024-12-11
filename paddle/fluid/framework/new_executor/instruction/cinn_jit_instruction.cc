@@ -25,7 +25,6 @@
 #if defined(PADDLE_WITH_CUDA)
 #include "paddle/cinn/runtime/cinn_runtime.h"
 #endif
-PD_DECLARE_bool(cinn_bucket_compile);
 PD_DECLARE_bool(cinn_measure_kernel_time);
 PD_DECLARE_string(tile_config_policy);
 PD_DECLARE_string(cinn_kernel_execution_label);
@@ -289,7 +288,7 @@ void CinnJitInstruction::Run() {
   // 1. prepare kernel arguments
   fn_ptr_impl_->InitFuncArgs(tensor_args_);
 
-  if (FLAGS_cinn_bucket_compile && need_update_shape) {
+  if (need_update_shape) {
     fn_ptr_impl_->InferShape(
         tensor_args_, input_tensor_size, output_tensor_size);
   }

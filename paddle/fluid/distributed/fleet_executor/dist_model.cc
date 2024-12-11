@@ -28,8 +28,7 @@
 #include "paddle/fluid/framework/scope.h"
 #include "paddle/fluid/framework/tensor.h"
 
-namespace paddle {
-namespace distributed {
+namespace paddle::distributed {
 
 namespace {
 bool IsPersistable(const framework::VarDesc *var) {
@@ -125,7 +124,7 @@ bool LoadDataFromDistModelTensor(const DistModelTensor &input_data,
         "DistModel only supports CPU and GPU and XPU and CustomDevice."));
   }
 
-  phi::LoD dst_lod;
+  phi::LegacyLoD dst_lod;
   for (auto &src_lod : input_data.lod) {
     dst_lod.emplace_back(src_lod);
   }
@@ -704,5 +703,4 @@ bool DistModel::Run(const std::vector<DistModelTensor> &input_data,
   return true;
 }
 
-}  // namespace distributed
-}  // namespace paddle
+}  // namespace paddle::distributed

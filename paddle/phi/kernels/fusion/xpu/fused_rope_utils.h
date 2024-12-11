@@ -296,7 +296,7 @@ void XPUFusedRotaryEveryTwo(const Context& dev_ctx,
         num_heads,
         head_dim,
         {seq_len * num_heads * head_dim, num_heads * head_dim, head_dim, 1},
-        std::string("BLHD").c_str(),
+        "BLHD",
         true);
     PADDLE_ENFORCE_XDNN_SUCCESS(ret, single_func_name);
   } else {
@@ -316,7 +316,7 @@ void XPUFusedRotaryEveryTwo(const Context& dev_ctx,
         {seq_len * num_heads * head_dim, num_heads * head_dim, head_dim, 1},
         {seq_len * num_heads_k * head_dim, num_heads_k * head_dim, head_dim, 1},
         num_heads_k,
-        std::string("BLHD").c_str(),
+        "BLHD",
         true);
     PADDLE_ENFORCE_XDNN_SUCCESS(ret, fusion_func_name);
   }
@@ -333,7 +333,7 @@ void XPUFusedRotaryEveryTwo(const Context& dev_ctx,
         num_heads_v,
         head_dim,
         {seq_len * num_heads_v * head_dim, num_heads_v * head_dim, head_dim, 1},
-        std::string("BLHD").c_str(),
+        "BLHD",
         true);
     PADDLE_ENFORCE_XDNN_SUCCESS(ret, single_func_name);
   }

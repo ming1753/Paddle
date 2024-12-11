@@ -183,8 +183,8 @@ template <typename T>
 Tensor one_hot_decomp(const Tensor& x, const Tensor& num_classes) {
   auto start = full<T>({1}, 0, x.dtype(), x.place());
   auto step = full<T>({1}, 1, x.dtype(), x.place());
-  auto arange_class = backend::arange_with_tensor<T>(
-      start, num_classes, step, x.dtype(), x.place());
+  auto arange_class =
+      backend::arange<T>(start, num_classes, step, x.dtype(), x.place());
   auto reshape_x = backend::unsqueeze<T>(x, {-1});
   auto equal_res = backend::equal<T>(reshape_x, arange_class);
   return cast<T>(equal_res, phi::DataType::FLOAT32);
@@ -1223,10 +1223,9 @@ Tensor index_sample_decomp(const Tensor& x, const Tensor& index) {
   auto index_dim = get_slice<T>(shape64<T>(index), 0);
   auto start = full<T>({1}, 0, index_dim.dtype());
   auto step = full<T>({1}, 1, index_dim.dtype());
-  auto arange_tmp =
-      reshape<T>(backend::arange_with_tensor<T>(
-                     start, index_dim, step, index.dtype(), index.place()),
-                 tmp_shape);
+  auto arange_tmp = reshape<T>(
+      backend::arange<T>(start, index_dim, step, index.dtype(), index.place()),
+      tmp_shape);
 
   auto index_res =
       reshape<T>(backend::expand<T>(arange_tmp, shape64<T>(index)), tmp_shape);
@@ -1400,6 +1399,83 @@ Tensor numel_decomp(const Tensor& x) {
 template <typename T>
 Tensor swish_decomp(const Tensor& x) {
   return x * sigmoid<T>(x);
+}
+
+template <typename T>
+Tensor addmm_decomp(const Tensor& input,
+                    const Tensor& x,
+                    const Tensor& y,
+                    const float beta,
+                    const float alpha) {
+  Tensor x_y_mat = matmul<T>(x, y);
+  return full_scalar<T>(alpha, x_y_mat.dtype()) * x_y_mat +
+         full_scalar<T>(beta, input.dtype()) * input;
+}
+
+template <typename T>
+Tensor eye_decomp(const paddle::Scalar& num_rows,
+                  const paddle::Scalar& num_columns,
+                  const DataType dtype,
+                  const Place& place) {
+  int32_t min_num = std::min(num_rows.to<int>(), num_columns.to<int>());
+  Tensor zero_tensor =
+      full<T>({num_rows.to<int>(), num_columns.to<int>()}, 0, dtype, place);
+  auto zero_tensor_cast = ConverToMT<T>(zero_tensor);
+  Tensor diag_one = unsqueeze<T>(full<T>({min_num}, 1, dtype, place), {1});
+  auto diag_one_cast = ConverToMT<T>(diag_one);
+
+  auto start = full<T>({1}, 0, dtype, place);
+  auto stop = full<T>({1}, min_num, dtype, place);
+  auto step = full<T>({1}, 1, dtype, place);
+  Tensor index = unsqueeze<T>(
+      backend::arange<T>(start, stop, step, DataType::INT32, place), {1});
+
+  auto index_cast = ConverToMT<T>(index);
+  Tensor res = put_along_axis<T>(zero_tensor_cast, index, diag_one_cast, 1);
+
+  return ConverToOrig<T>(res, dtype);
+}
+
+template <typename T>
+Tensor diag_decomp(const Tensor& x,
+                   const int& offset = 0,
+                   const float& padding_value = 0.0) {
+  Tensor cast_x = ConverToMT<T>(x);
+  int64_t rank = cast_x.dims().size();
+  Tensor res;
+  if (rank == 1) {
+    std::vector<int64_t> x_dims = cast_x.shape();
+    int64_t n = x_dims[0];
+    int64_t m = n + std::abs(offset);
+
+    Tensor result =
+        full<T>({m, m}, padding_value, cast_x.dtype(), cast_x.place());
+    Tensor padding = full<T>(
+        {std::abs(offset)}, padding_value, cast_x.dtype(), cast_x.place());
+
+    Tensor x_padding =
+        unsqueeze<T>(roll<T>(concat<T>({cast_x, padding}, 0), {-offset}), {1});
+    Tensor indices = unsqueeze<T>(
+        roll<T>(backend::arange<T>(0, m, 1, DataType::INT64, cast_x.place()),
+                {-offset}),
+        {1});
+
+    res = put_along_axis<T>(result, indices, x_padding, 1);
+
+  } else {
+    std::vector<int64_t> x_dims = cast_x.shape();
+    int64_t n = x_dims[0];
+    int64_t m = x_dims[1];
+    if (offset <= -n || offset >= m) {
+      return res;
+    }
+    Tensor x_flat = reshape<T>(cast_x, {n * m});
+    int64_t start = offset >= 0 ? offset : -offset * m;
+    Tensor indices = backend::arange<T>(
+        start, n * m, m + 1, DataType::INT64, cast_x.place());
+    res = take_along_axis<T>(x_flat, indices, 0);
+  }
+  return ConverToOrig<T>(res, x.dtype());
 }
 
 }  // namespace details

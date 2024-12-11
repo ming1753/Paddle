@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include "paddle/phi/common/amp_type_traits.h"
 #include "paddle/phi/common/float16.h"
 #include "paddle/phi/core/enforce.h"
@@ -83,6 +84,17 @@ struct IdentityFunctor {
   }
 };
 
+template <typename T>
+struct IdentityFunctor<phi::dtype::complex<T>, bool> {
+  HOSTDEVICE inline IdentityFunctor() {}
+
+  HOSTDEVICE explicit inline IdentityFunctor(int n) {}
+
+  HOSTDEVICE inline bool operator()(const phi::dtype::complex<T>& x) const {
+    return x.real != 0 || x.imag != 0;
+  }
+};
+
 /**
  * @brief Default unary div functor. Divide by a constant
  */
@@ -142,8 +154,50 @@ struct MinFunctor {
   inline T initial() { return static_cast<T>(std::numeric_limits<T>::max()); }
 
   __device__ __forceinline__ T operator()(const T a, const T b) const {
+    if (std::is_floating_point<T>::value) {
+      if (isnan(a)) {
+        return a;
+      }
+      if (isnan(b)) {
+        return b;
+      }
+    }
     return (b < a) ? b : a;
   }
+};
+
+/**
+ * @brief Int32_t binary min functor
+ */
+template <>
+struct MinFunctor<int32_t> {
+  inline int32_t initial() { return std::numeric_limits<int32_t>::max(); }
+
+  __device__ int32_t operator()(const int32_t a, const int32_t b) const {
+    return (b < a) ? b : a;
+  }
+};
+
+/**
+ * @brief Int64_t binary min functor
+ */
+template <>
+struct MinFunctor<int64_t> {
+  inline int64_t initial() { return std::numeric_limits<int64_t>::max(); }
+
+  __device__ int64_t operator()(const int64_t a, const int64_t b) const {
+    return (b < a) ? b : a;
+  }
+};
+
+/**
+ * @brief Bool binary min functor
+ */
+template <>
+struct MinFunctor<bool> {
+  inline bool initial() { return false; }
+
+  __device__ bool operator()(const bool a, const bool b) const { return a & b; }
 };
 
 /**
@@ -156,8 +210,50 @@ struct MaxFunctor {
   }
 
   __device__ __forceinline__ T operator()(const T a, const T b) const {
+    if (std::is_floating_point<T>::value) {
+      if (isnan(a)) {
+        return a;
+      }
+      if (isnan(b)) {
+        return b;
+      }
+    }
     return (b > a) ? b : a;
   }
+};
+
+/**
+ * @brief Int32_t binary max functor
+ */
+template <>
+struct MaxFunctor<int32_t> {
+  inline int32_t initial() { return std::numeric_limits<int32_t>::lowest(); }
+
+  __device__ int32_t operator()(const int32_t a, const int32_t b) const {
+    return (b > a) ? b : a;
+  }
+};
+
+/**
+ * @brief Int64_t binary max functor
+ */
+template <>
+struct MaxFunctor<int64_t> {
+  inline int64_t initial() { return std::numeric_limits<int64_t>::lowest(); }
+
+  __device__ int64_t operator()(const int64_t a, const int64_t b) const {
+    return (b > a) ? b : a;
+  }
+};
+
+/**
+ * @brief Bool binary max functor
+ */
+template <>
+struct MaxFunctor<bool> {
+  inline bool initial() { return true; }
+
+  __device__ bool operator()(const bool a, const bool b) const { return a | b; }
 };
 
 /**

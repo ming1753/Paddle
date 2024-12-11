@@ -233,6 +233,12 @@ static phi::DataType TRT2PaddleDataType(nvinfer1::DataType type) {
       return phi::DataType::FLOAT16;
     case nvinfer1::DataType::kINT8:
       return phi::DataType::INT8;
+#if IS_TRT_VERSION_GE(9000)
+    case nvinfer1::DataType::kINT64:
+      VLOG(4) << "get nvinfer1::DataType::kINT64 from TRT op, and will output "
+                 "to paddle. Does the downstream paddle op here support int64?";
+      return phi::DataType::INT64;
+#endif
 #if IS_TRT_VERSION_GE(7000)
     case nvinfer1::DataType::kBOOL:
       return phi::DataType::BOOL;

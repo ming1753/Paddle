@@ -567,5 +567,35 @@ class TestRollCase3TRTPattern(TensorRTBaseTest):
         self.check_trt_result()
 
 
+class TestSqueezeTRTPattern(TensorRTBaseTest):
+    def setUp(self):
+        self.python_api = paddle.squeeze
+        self.api_args = {
+            "x": np.random.random([1, 1, 28]).astype("float32"),
+            "axis": 1,
+        }
+        self.program_config = {"feed_list": ["x"]}
+        self.min_shape = {"x": [1, 1, 28]}
+        self.max_shape = {"x": [5, 1, 28]}
+
+    def test_trt_result(self):
+        self.check_trt_result()
+
+
+class TestSqueezeCase1TRTPattern(TensorRTBaseTest):
+    def setUp(self):
+        self.python_api = paddle.squeeze
+        self.api_args = {
+            "x": np.random.random([1, 1, 28]).astype("int64"),
+            "axis": 1,
+        }
+        self.program_config = {"feed_list": ["x"]}
+        self.min_shape = {"x": [1, 1, 28]}
+        self.max_shape = {"x": [5, 1, 28]}
+
+    def test_trt_result(self):
+        self.check_trt_result()
+
+
 if __name__ == '__main__':
     unittest.main()

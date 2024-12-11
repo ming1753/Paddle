@@ -22,8 +22,6 @@
 #include "paddle/cinn/ir/op/ir_operators.h"
 #include "paddle/common/enforce.h"
 
-PD_DECLARE_bool(cinn_bucket_compile);
-
 namespace cinn {
 namespace ir {
 

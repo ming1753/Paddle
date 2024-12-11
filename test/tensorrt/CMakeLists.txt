@@ -28,5 +28,5 @@ if(NOT WIN32 AND TENSORRT_FOUND)
   set_tests_properties(test_converter_linalg PROPERTIES TIMEOUT "100")
   set_tests_properties(test_converter_search PROPERTIES TIMEOUT "300")
   set_tests_properties(test_converter_logic PROPERTIES TIMEOUT "300")
-
+  set_tests_properties(test_converter_pooling PROPERTIES TIMEOUT "300")
 endif()

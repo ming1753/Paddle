@@ -45,7 +45,7 @@ std::unordered_set<std::string> SKIP_CHECK_OPS = {
     "pd_op.less_than",     "pd_op.less_equal",   "pd_op.greater_than",
     "pd_op.greater_equal", "pd_op.equal",        "pd_op.not_equal",
     "pd_op.logical_and",   "pd_op.logical_or",   "pd_op.logical_xor",
-    "pd_op.shape"};
+    "pd_op.shape",         "pd_op.shape64"};
 
 class BlockDimExprsAsserter {
  public:

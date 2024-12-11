@@ -1088,8 +1088,8 @@ bool HistogramOpInferSymbolicShape(
   const symbol::ShapeOrDataDimExprs &input_shape_or_data =
       infer_context->GetShapeOrDataForValue(op->operand_source(0));
   int64_t bins = op->attribute<pir::Int64Attribute>("bins").data();
-  int min = op->attribute<pir::Int32Attribute>("min").data();
-  int max = op->attribute<pir::Int32Attribute>("max").data();
+  float min = op->attribute<pir::FloatAttribute>("min").data();
+  float max = op->attribute<pir::FloatAttribute>("max").data();
   PADDLE_ENFORCE_GE(bins,
                     1,
                     common::errors::InvalidArgument(
@@ -1100,7 +1100,7 @@ bool HistogramOpInferSymbolicShape(
       max,
       min,
       common::errors::InvalidArgument("max must be larger or equal to min."
-                                      "But received max is %d, min is %d",
+                                      "But received max is %f, min is %f",
                                       max,
                                       min));
   if (op->operand_source(1)) {

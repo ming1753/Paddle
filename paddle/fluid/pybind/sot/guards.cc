@@ -20,7 +20,7 @@ limitations under the License. */
 #include <Python.h>
 #include <frameobject.h>
 
-#if !defined(PyObject_CallOneArg) && PY_VERSION_HEX < PY_3_9_0_HEX
+#if !defined(PyObject_CallOneArg) && !PY_3_9_PLUS
 static inline PyObject* PyObject_CallOneArg(PyObject* func, PyObject* arg) {
   return PyObject_CallFunctionObjArgs(func, arg, NULL);
 }

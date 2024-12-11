@@ -60,6 +60,10 @@ def relu_net(x):
     return paddle.nn.functional.relu(x)
 
 
+def relu6_net(x):
+    return paddle.nn.functional.relu6(x)
+
+
 def reshape_net(x):
     return paddle.reshape(x, [30, 200 * 40])
 
@@ -361,6 +365,19 @@ class TestPrimReluWithGrad(TestPrimBaseWithGrad):
         self.init_x_shape = [None, None, None]
         self.x = np.random.random(self.x_shape).astype(self.dtype)
         self.net = relu_net
+        self.enable_cinn = False
+        self.tol = 1e-6
+
+
+class TestPrimRelu6WithGrad(TestPrimBaseWithGrad):
+    def setUp(self):
+        np.random.seed(2023)
+        self.op_name = "pd_op.relu6_grad"
+        self.dtype = "float32"
+        self.x_shape = [30, 200, 40]
+        self.init_x_shape = [None, None, None]
+        self.x = np.random.random(self.x_shape).astype(self.dtype)
+        self.net = relu6_net
         self.enable_cinn = False
         self.tol = 1e-6
 

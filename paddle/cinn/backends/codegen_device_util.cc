@@ -18,16 +18,12 @@
 #include "paddle/cinn/common/cas.h"
 #include "paddle/cinn/ir/ir_mutator.h"
 #include "paddle/common/enforce.h"
-PD_DECLARE_bool(cinn_bucket_compile);
+
 namespace cinn {
 namespace backends {
 
 std::tuple<ir::Module, ir::Module> SplitDeviceAndHostModule(ir::Module module) {
-  if (FLAGS_cinn_bucket_compile) {
-    detail::CollectBucketStrategyHostFunctionVisitor visitor(module->name);
-    return visitor(module);
-  }
-  detail::CollectHostFunctionVisitor visitor(module->name);
+  detail::CollectBucketStrategyHostFunctionVisitor visitor(module->name);
   return visitor(module);
 }
 

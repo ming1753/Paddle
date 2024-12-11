@@ -84,9 +84,12 @@ class PipelineVirtualPipelinePass(PipelinePassBase):
             return virtual_pp_stage
 
         total_num_steps = accumulate_steps * num_model_chunks
-        warmup_steps = (num_stages - stage_id - 1) * 2
-        warmup_steps += (num_model_chunks - 1) * num_stages
-        warmup_steps = min(warmup_steps, total_num_steps)
+        if accumulate_steps == num_stages:
+            warmup_steps = total_num_steps
+        else:
+            warmup_steps = (num_stages - stage_id - 1) * 2
+            warmup_steps += (num_model_chunks - 1) * num_stages
+            warmup_steps = min(warmup_steps, total_num_steps)
 
         steady_steps = total_num_steps - warmup_steps
         real_split_backward = (

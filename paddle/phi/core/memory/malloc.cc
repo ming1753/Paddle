@@ -18,8 +18,7 @@ limitations under the License. */
 #include "paddle/phi/core/memory/allocation/allocator_facade.h"
 #include "paddle/phi/core/stream.h"
 
-namespace paddle {
-namespace memory {
+namespace paddle::memory {
 
 std::shared_ptr<Allocation> AllocShared(const phi::Place& place, size_t size) {
   return allocation::AllocatorFacade::Instance().AllocShared(place, size);
@@ -84,5 +83,4 @@ bool RecordStream(std::shared_ptr<Allocation> allocation,
                                                               stream);
 }
 #endif
-}  // namespace memory
-}  // namespace paddle
+}  // namespace paddle::memory

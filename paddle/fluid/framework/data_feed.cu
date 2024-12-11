@@ -1285,14 +1285,14 @@ int GraphDataGenerator::GenerateBatch() {
     }
     sage_batch_count_ += 1;
   }
-  LoD lod{offset_};
+  LegacyLoD lod{offset_};
 
   if (conf_.accumulate_num >= 2) {
     offset_.clear();
     offset_.push_back(0);
     offset_.push_back(uniq_instance_vec_[sage_batch_count_ * 2]);
   }
-  LoD lod2{offset_};
+  LegacyLoD lod2{offset_};
 
   if (conf_.accumulate_num == 1) {
     for (int tensor_pair_idx = 0; tensor_pair_idx < conf_.tensor_pair_num;

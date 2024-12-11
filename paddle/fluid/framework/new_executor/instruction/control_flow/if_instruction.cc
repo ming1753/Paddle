@@ -41,8 +41,7 @@
 #include "paddle/fluid/platform/onednn_helper.h"
 #endif
 
-namespace paddle {
-namespace framework {
+namespace paddle::framework {
 
 IfInstruction::IfInstruction(size_t id,
                              const phi::Place& place,
@@ -122,8 +121,9 @@ IfInstruction::IfInstruction(size_t id,
       is_last_op = false;
     }
   }
-  InsertTuplePushContinerToOuts(&true_branch_block, *value_exec_info, &outputs);
-  InsertTuplePushContinerToOuts(
+  InsertTuplePushContainerToOuts(
+      &true_branch_block, *value_exec_info, &outputs);
+  InsertTuplePushContainerToOuts(
       &if_op.false_block(), *value_exec_info, &outputs);
 
   InsertInplacedExternalInputsToOuts(
@@ -266,5 +266,4 @@ void IfInstruction::Run() {
   // copy output
 }
 
-}  // namespace framework
-}  // namespace paddle
+}  // namespace paddle::framework

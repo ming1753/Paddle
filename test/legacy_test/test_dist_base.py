@@ -775,7 +775,7 @@ class TestParallelDyGraphRunnerBase:
                 if step_id % 10 == 0:
                     print_to_err(
                         type(self).__name__,
-                        "loss at step %d: %f" % (step_id, loss.numpy()),
+                        f"loss at step {step_id}: {loss.numpy().item():f}",
                     )
                 out_losses.append(loss.numpy())
 
@@ -1128,9 +1128,9 @@ class TestDistBase(unittest.TestCase):
         )
 
         if batch_size != DEFAULT_BATCH_SIZE:
-            cmd += " --batch_size %d" % batch_size
+            cmd += f" --batch_size {batch_size}"
         if batch_merge_repeat > 1:
-            cmd += " --batch_merge_repeat %d" % batch_merge_repeat
+            cmd += f" --batch_merge_repeat {batch_merge_repeat}"
         if self._nccl2_reduce_layer:
             cmd += " --nccl2_reduce_layer_local_run 1"
 

@@ -144,6 +144,19 @@ LOGIC_OP_LIST = {
     'LogicalNotOp',
     'LogicalNot_Op',
     'LogicalXorOp',
+    'GreaterEqualOp',
+    'GreaterEqual_Op',
+    'GreaterThanOp',
+    'GreaterThan_Op',
+    'LessEqualOp',
+    'LessEqual_Op',
+    'LessThanOp',
+    'LessThan_Op',
+    'EqualOp',
+    'Equal_Op',
+    'EqualAllOp',
+    'NotEqualOp',
+    'NotEqual_Op',
 }
 OP_BUILD_TEMPLATE = """
 void {op_name}::Build({build_args}) {{

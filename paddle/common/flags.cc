@@ -1433,7 +1433,8 @@ PHI_DEFINE_EXPORTED_bool(
  * Since Version: 3.0.0
  * Value Range: bool, default=false
  * Example:
- * Note: If True, using AutoLayoutPass and AutuLayoutSimplifyPass by default
+ * Note: If True, using AutoLayoutInsertPass and AutuLayoutSimplifyPass by
+ * default
  */
 PHI_DEFINE_EXPORTED_bool(enable_auto_layout_pass,
                          false,

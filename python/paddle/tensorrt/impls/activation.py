@@ -35,9 +35,9 @@ activation_type_map = {
 }
 
 
-@converter_registry.register("pd_op.relu", trt_version="8.x")
-@converter_registry.register("pd_op.tanh", trt_version="8.x")
-@converter_registry.register("pd_op.sigmoid", trt_version="8.x")
+@converter_registry.register("pd_op.relu", trt_version="trt_version_ge=8.0")
+@converter_registry.register("pd_op.tanh", trt_version="trt_version_ge=8.0")
+@converter_registry.register("pd_op.sigmoid", trt_version="trt_version_ge=8.0")
 def activation_converter(network, paddle_op, inputs):
     layer = network.add_activation(
         inputs[0], activation_type_map[paddle_op.name()]
@@ -45,7 +45,7 @@ def activation_converter(network, paddle_op, inputs):
     return layer.get_output(0)
 
 
-@converter_registry.register("pd_op.softmax", trt_version="8.x")
+@converter_registry.register("pd_op.softmax", trt_version="trt_version_ge=8.0")
 def softmax_converter(network, paddle_op, inputs):
     axis = paddle_op.attrs().get("axis", 0)
     if axis < 0:
@@ -56,7 +56,7 @@ def softmax_converter(network, paddle_op, inputs):
     return softmax_layer.get_output(0)
 
 
-@converter_registry.register("pd_op.gelu", trt_version="8.x")
+@converter_registry.register("pd_op.gelu", trt_version="trt_version_ge=8.0")
 def gelu_converter(network, paddle_op, inputs):
     input_val = inputs[0]
     approximate = paddle_op.attrs()["approximate"]
@@ -79,7 +79,9 @@ def gelu_converter(network, paddle_op, inputs):
     return layer.get_output(0)
 
 
-@converter_registry.register("pd_op.hardsigmoid", trt_version="8.x")
+@converter_registry.register(
+    "pd_op.hardsigmoid", trt_version="trt_version_ge=8.0"
+)
 def hardsigmoid_converter(network, paddle_op, inputs):
     x = inputs[0]
     slope = paddle_op.attrs()["slope"]
@@ -92,7 +94,9 @@ def hardsigmoid_converter(network, paddle_op, inputs):
     return hardsigmoid_layer.get_output(0)
 
 
-@converter_registry.register("pd_op.hardswish", trt_version="8.x")
+@converter_registry.register(
+    "pd_op.hardswish", trt_version="trt_version_ge=8.0"
+)
 def hardswish_converter(network, paddle_op, inputs):
     x = inputs[0]
     threshold = 6.0
@@ -133,6 +137,31 @@ def swish_silu_converter(network, paddle_op, inputs):
         inputs[0], activation_type_map[paddle_op.name()]
     ).get_output(0)
     return trt_prod(network, inputs[0], layer_output)
+
+
+@converter_registry.register("pd_op.stanh", trt_version="8.x")
+def stanh_converter(network, paddle_op, inputs):
+    x = inputs[0]
+    scale_a = paddle_op.attrs()["scale_a"]
+    scale_b = paddle_op.attrs()["scale_b"]
+    stanh_layer = network.add_activation(x, trt.ActivationType.SCALED_TANH)
+    stanh_layer.alpha = scale_b
+    stanh_layer.beta = scale_a
+    return stanh_layer.get_output(0)
+
+
+@converter_registry.register("pd_op.mish", trt_version="8.x")
+def mish_converter(network, paddle_op, inputs):
+    x = inputs[0]
+    softplus_layer = network.add_activation(x, trt.ActivationType.SOFTPLUS)
+    softplus_output = softplus_layer.get_output(0)
+
+    tanh_layer = network.add_activation(
+        softplus_output, trt.ActivationType.TANH
+    )
+    tanh_output = tanh_layer.get_output(0)
+
+    return trt_prod(network, x, tanh_output)
 
 
 @converter_registry.register("pd_op.celu", trt_version="8.x")

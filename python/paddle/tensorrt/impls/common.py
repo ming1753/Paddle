@@ -16,7 +16,7 @@
 import numpy as np
 import tensorrt as trt
 
-from paddle.tensorrt.converter_utils import get_shape_tensor_element
+from paddle.tensorrt.converter_utils import get_shape_tensor_element, trt_shape
 from paddle.tensorrt.register import converter_registry
 from paddle.tensorrt.util import get_trt_version_list
 
@@ -48,10 +48,11 @@ def dropout_converter(network, paddle_op, inputs):
     return scale_layer.get_output(0)
 
 
-@converter_registry.register("pd_op.bilinear_interp", trt_version="8.x")
+@converter_registry.register(
+    "pd_op.bilinear_interp", trt_version="trt_version_ge=8.0"
+)
 def bilinear_interp_converter(network, paddle_op, inputs):
     input_tensor = inputs[0]
-    input_shape = paddle_op.operands()[0].source().shape
     data_format = paddle_op.attrs().get("data_format")
     interp_method = paddle_op.attrs().get("interp_method")
     align_corners = paddle_op.attrs().get("align_corners")
@@ -140,7 +141,7 @@ def bilinear_interp_converter(network, paddle_op, inputs):
     else:
         if outsize_tensor is not None:
             outsize_itensors = []
-            input_shape_tensor = network.add_shape(input_tensor).get_output(0)
+            input_shape_tensor = trt_shape(network, input_tensor)
             batch_dim = get_shape_tensor_element(network, input_shape_tensor, 0)
             outsize_itensors.append(batch_dim)
             if data_format == "NCHW":
@@ -163,10 +164,11 @@ def bilinear_interp_converter(network, paddle_op, inputs):
     return resize_layer.get_output(0)
 
 
-@converter_registry.register("pd_op.nearest_interp", trt_version="8.x")
+@converter_registry.register(
+    "pd_op.nearest_interp", trt_version="trt_version_ge=8.0"
+)
 def nearest_interp_converter(network, paddle_op, inputs):
     input_tensor = inputs[0]
-    input_shape = paddle_op.operands()[0].source().shape
     data_format = paddle_op.attrs().get("data_format")
     interp_method = paddle_op.attrs().get("interp_method")
     align_corners = paddle_op.attrs().get("align_corners")
@@ -256,7 +258,7 @@ def nearest_interp_converter(network, paddle_op, inputs):
         )
     if outsize_tensor is not None:
         outsize_itensors = []
-        input_shape_tensor = network.add_shape(input_tensor).get_output(0)
+        input_shape_tensor = trt_shape(network, input_tensor)
         batch_dim = get_shape_tensor_element(network, input_shape_tensor, 0)
         outsize_itensors.append(batch_dim)
         if data_format == "NCHW":

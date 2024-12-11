@@ -58,8 +58,7 @@
 // paddle/fluid/pir/dialect/CMakeLists.txt.
 #include "paddle/fluid/pir/dialect/operator/ir/pd_op.h"
 
-namespace paddle {
-namespace translator {
+namespace paddle::translator {
 
 namespace {
 
@@ -3243,7 +3242,7 @@ struct RandIntOpTranscriber : public OpTranscriber {
         common::make_ddim(var->GetShape());
     paddle::dialect::DenseTensorTypeStorage::DataLayout layout =
         paddle::dialect::DenseTensorTypeStorage::DataLayout::NCHW;
-    paddle::dialect::DenseTensorTypeStorage::LoD lod = {};
+    paddle::dialect::DenseTensorTypeStorage::LegacyLoD lod = {};
     size_t offset = 0;
     pir::Type translated_var_type = paddle::dialect::DenseTensorType::get(
         ctx, dtype, dim, layout, lod, offset);
@@ -4024,5 +4023,4 @@ OpTranslator::OpTranslator() {
 
   special_handlers["c_sync_comm_stream"] = SyncCommStreamOpTranscriber();
 }
-}  // namespace translator
-}  // namespace paddle
+}  // namespace paddle::translator

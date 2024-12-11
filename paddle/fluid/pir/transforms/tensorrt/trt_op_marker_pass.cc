@@ -84,8 +84,11 @@ DEFINE_GENERAL_PATTERN(Swish, paddle::dialect::SwishOp)
 DEFINE_GENERAL_PATTERN(Log, paddle::dialect::LogOp)
 DEFINE_GENERAL_PATTERN(Floor, paddle::dialect::FloorOp)
 DEFINE_GENERAL_PATTERN(Roll, paddle::dialect::RollOp)
+DEFINE_GENERAL_PATTERN(Stanh, paddle::dialect::StanhOp)
 DEFINE_GENERAL_PATTERN(Softplus, paddle::dialect::SoftplusOp)
 DEFINE_GENERAL_PATTERN(ThresholdedRelu, paddle::dialect::ThresholdedReluOp)
+DEFINE_GENERAL_PATTERN(Flip, paddle::dialect::FlipOp)
+DEFINE_GENERAL_PATTERN(Mish, paddle::dialect::MishOp)
 
 #undef DEFINE_GENERAL_PATTERN
 
@@ -276,6 +279,13 @@ class Pool2dOpPattern
       VLOG(3) << "Cannot find FullIntArrayOp";
       return false;
     }
+    auto attr_value =
+        full_int_array_op->attribute<pir::ArrayAttribute>("value");
+    std::vector<int64_t> kernel_size;
+    for (const auto &attr : attr_value.AsVector()) {
+      kernel_size.push_back(attr.dyn_cast<pir::Int64Attribute>().data());
+    }
+
     auto padding_attr = op->attribute<pir::ArrayAttribute>("paddings");
     std::vector<int32_t> paddings;
     for (const auto &attr : padding_attr.AsVector()) {
@@ -296,38 +306,71 @@ class Pool2dOpPattern
     if (!op->HasAttribute("pooling_type")) {
       VLOG(3) << "The pooling_type attribute does not exist";
       return false;
-    } else {
-      std::string pool_type =
-          op->attribute<pir::StrAttribute>("pooling_type").AsString();
-      if (pool_type != "max" && pool_type != "avg") {
-        VLOG(3) << "Wrong pool op type, the trt do not support the "
-                << pool_type << " pool type.";
-        return false;
-      }
-      if (pool_type == "avg") {
-        if (op->HasAttribute("global_pooling")) {
-          if (!op->attribute<pir::BoolAttribute>("global_pooling").data()) {
-            if (op->HasAttribute("exclusive")) {
-              if (op->attribute<pir::BoolAttribute>("exclusive").data()) {
-                auto attr_value =
-                    full_int_array_op->attribute<pir::ArrayAttribute>("value");
-                std::vector<int64_t> kernel_size;
-                for (const auto &attr : attr_value.AsVector()) {
-                  kernel_size.push_back(
-                      attr.dyn_cast<pir::Int64Attribute>().data());
-                }
-                for (size_t i = 0; i < kernel_size.size(); ++i) {
-                  if (kernel_size[i] <= paddings[i]) {
-                    VLOG(3) << "the padding size should be less than the "
-                               "filter size "
-                               "for exclusive-counting pooling.";
-                    return false;
-                  }
+    }
+    std::string pool_type =
+        op->attribute<pir::StrAttribute>("pooling_type").AsString();
+    if (pool_type != "max" && pool_type != "avg") {
+      VLOG(3) << "Wrong pool op type, the trt do not support the " << pool_type
+              << " pool type.";
+      return false;
+    }
+    if (pool_type == "avg") {
+      if (op->HasAttribute("global_pooling")) {
+        if (!op->attribute<pir::BoolAttribute>("global_pooling").data()) {
+          if (op->HasAttribute("exclusive")) {
+            if (op->attribute<pir::BoolAttribute>("exclusive").data()) {
+              for (size_t i = 0; i < kernel_size.size(); ++i) {
+                if (kernel_size[i] <= paddings[i]) {
+                  VLOG(3) << "the padding size should be less than the "
+                             "filter size "
+                             "for exclusive-counting pooling.";
+                  return false;
                 }
               }
             }
           }
         }
+      }
+    }
+
+    auto ceil_mode = op->attribute<pir::BoolAttribute>("ceil_mode").data();
+    auto global_pooling =
+        op->attribute<pir::BoolAttribute>("global_pooling").data();
+    std::string padding_algorithm =
+        op->attribute<pir::StrAttribute>("padding_algorithm").AsString();
+
+    auto adaptive = op->attribute<pir::BoolAttribute>("adaptive").data();
+    // TODO(Lizexu): This piece of code exists in the old IR-TRT implementation
+    // but is not covered by unit tests, raising suspicions about its
+    // correctness. In the PIR-TRT implementation, following the same approach
+    // causes precision issues. For now, we will exclude it from entering
+    // TensorRT.
+    pir::Value input = op.operand_source(0);
+    auto input_type = input.type().dyn_cast<paddle::dialect::DenseTensorType>();
+    auto input_dims = input_type.dims();
+    int g_post_pad_h = 0;
+    int g_post_pad_w = 0;
+    int input_height = input_dims[input_dims.size() - 2];
+    int input_width = input_dims[input_dims.size() - 1];
+    std::vector<int32_t> strides;
+    auto strides_attr = op->attribute<pir::ArrayAttribute>("strides");
+    for (const auto &attr : strides_attr.AsVector()) {
+      strides.push_back(attr.dyn_cast<pir::Int32Attribute>().data());
+    }
+    if (input_height > 0 &&
+        input_height - kernel_size[0] + 2 * paddings[0] < 0) {
+      g_post_pad_h = strides[0] - 1;
+    }
+    if (input_width > 0 && input_width - kernel_size[1] + 2 * paddings[1] < 0) {
+      g_post_pad_w = strides[1] - 1;
+    }
+    if (!adaptive && !global_pooling && !ceil_mode) {
+      if (padding_algorithm != "SAME" &&
+          ((g_post_pad_h > 0 && input_height > 0) ||
+           (g_post_pad_w > 0 && input_width > 0))) {
+        VLOG(3) << "The pool2d op meets the condition that may cause precision "
+                   "issues in TRT. Skip TRT conversion.";
+        return false;
       }
     }
     op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
@@ -904,35 +947,21 @@ class FlattenOpPattern
       return false;
     }
     int start_axis = op->attribute<pir::Int32Attribute>("start_axis").data();
-    int stop_axis = op->attribute<pir::Int32Attribute>("stop_axis").data();
 
     pir::Value x = op.operand_source(0);
     auto x_type = x.type().dyn_cast<paddle::dialect::DenseTensorType>();
     auto x_shape = x_type.dims();
     int dims = x_shape.size();
-    if (dims == 0) {
-      VLOG(3) << "Flatten op does not support input's dim is 0 in tensorrt "
-                 "static shape mode.";
-    }
+
     if (start_axis < 0) {
       start_axis += dims;
     }
-
     if (start_axis == 0) {
-      VLOG(3) << "TRT flatten_contiguous_range not support the "
-                 "batch-dimension being changed";
+      VLOG(3)
+          << "TRT pd_op.flatten not support the batch-dimension being changed";
       return false;
     }
-    if (stop_axis < 0) {
-      stop_axis += dims;
-    }
-    for (int i = start_axis; i <= stop_axis; ++i) {
-      if (x_shape[i] < 0) {
-        VLOG(3) << "On TRT static shape,flatten_contiguous_range input dim "
-                   "should be > 0";
-        return false;
-      }
-    }
+
     op->set_attribute(kCanRunTrtAttr, rewriter.bool_attr(true));
     return true;
   }
@@ -2138,8 +2167,11 @@ class TrtOpMarkerPass : public pir::PatternRewritePass {
     ADD_PATTERN(Log)
     ADD_PATTERN(Floor)
     ADD_PATTERN(Roll)
+    ADD_PATTERN(Stanh)
     ADD_PATTERN(Softplus)
     ADD_PATTERN(ThresholdedRelu)
+    ADD_PATTERN(Flip)
+    ADD_PATTERN(Mish)
 #if IS_TRT_VERSION_GE(8600)
     ADD_PATTERN(Layer_norm)
 #endif

@@ -107,7 +107,7 @@ void SvdvalsKernel(const Context& dev_ctx,
       0,
       phi::errors::InvalidArgument("The batch size of Input(X) must be > 0."));
   DDim s_dims;
-  if (batches == 1) {
+  if (x_dims.size() <= 2) {
     s_dims = {k};
   } else {
     s_dims = {batches, k};

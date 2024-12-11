@@ -857,7 +857,7 @@ static PyObject *static_api_run_custom_op(PyObject *self,
         auto ddims = phi::make_ddim(output_shapes[value_index]);
         auto dtype = output_dtypes[value_index];
         phi::DataLayout layout{DataLayout::NCHW};
-        phi::LoD lod;
+        phi::LegacyLoD lod;
         auto type = paddle::dialect::DenseTensorType::get(
             pir::IrContext::Instance(),
             paddle::dialect::TransToIrDataType(dtype),
@@ -885,7 +885,7 @@ static PyObject *static_api_run_custom_op(PyObject *self,
       auto ddims = phi::make_ddim(output_shapes[value_index]);
       auto dtype = output_dtypes[value_index];
       phi::DataLayout layout{DataLayout::NCHW};
-      phi::LoD lod;
+      phi::LegacyLoD lod;
       auto out_type = paddle::dialect::DenseTensorType::get(
           pir::IrContext::Instance(),
           paddle::dialect::TransToIrDataType(dtype),
@@ -966,7 +966,7 @@ static PyObject *builtin_combine_op(PyObject *self,
                                     PyObject *args,
                                     PyObject *kwargs) {
   try {
-    VLOG(6) << "Add buitin_combine op into program";
+    VLOG(6) << "Add builtin_combine op into program";
     VLOG(8) << "args count: " << (PyTuple_Size(args) / 2);
     // Get Value from args
     PyObject *x_obj = PyTuple_GET_ITEM(args, 0);

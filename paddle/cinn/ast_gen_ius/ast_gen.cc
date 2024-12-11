@@ -22,7 +22,6 @@
 #include "paddle/cinn/optim/replace_var_with_expr.h"
 
 PD_DECLARE_bool(group_schedule_tiling_first);
-PD_DECLARE_bool(cinn_bucket_compile);
 
 namespace cinn {
 namespace ast_gen_ius {
@@ -239,8 +238,7 @@ ir::Expr AstGen::Build(const ir::Tensor& tensor, TensorGroup* tensor_group) {
     // Put the two parts together
     ir::Expr body = ir::Block::Make({init_body, reduce_body});
     for (int i = static_cast<int>(axis_len) - 1; i >= 0; --i) {
-      if ((!FLAGS_group_schedule_tiling_first || !FLAGS_cinn_bucket_compile) &&
-          shape[i] == Expr(1)) {
+      if (!FLAGS_group_schedule_tiling_first && shape[i] == Expr(1)) {
         continue;
       }
       ir::Var loop_var = axis[i];

@@ -227,11 +227,11 @@ LEGACY_DATA_MEMBER_FUNC_INSTANTIATION(::phi::dtype::complex<double>)
 /*   From phi::DenseTensor    */
 /* ------------------------------ */
 
-DenseTensor::DenseTensor(const LoD& legacy_lod) : DenseTensor() {
+DenseTensor::DenseTensor(const LegacyLoD& legacy_lod) : DenseTensor() {
   meta_.legacy_lod = legacy_lod;
 }
 
-void DenseTensor::set_lod(const LoD& legacy_lod) {
+void DenseTensor::set_lod(const LegacyLoD& legacy_lod) {
   meta_.legacy_lod = legacy_lod;
 }
 

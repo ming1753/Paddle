@@ -46,8 +46,7 @@ PHI_DECLARE_bool(enable_host_event_recorder_hook);
 PD_DECLARE_bool(log_memory_stats);
 COMMON_DECLARE_string(static_runtime_data_save_path);
 COMMON_DECLARE_bool(save_static_runtime_data);
-namespace paddle {
-namespace framework {
+namespace paddle::framework {
 
 ProgramInterpreter::ProgramInterpreter(const phi::Place& place,
                                        const BlockDesc& block,
@@ -196,7 +195,7 @@ FetchList ProgramInterpreter::Run(const std::vector<std::string>& feed_names,
   }
 
   if (HasLocalScope()) {
-    ClearLoDTensorArrayInLocalScope();
+    ClearDenseTensorArrayInLocalScope();
   }
 
   // NOTE (liuchenghao): we need to reset "is_in_op_profiling_mode_" to false.
@@ -282,7 +281,7 @@ FetchList ProgramInterpreter::Run(
   }
 
   if (HasLocalScope()) {
-    ClearLoDTensorArrayInLocalScope();
+    ClearDenseTensorArrayInLocalScope();
   }
 
   if (need_fetch) {
@@ -670,7 +669,7 @@ void ProgramInterpreter::BuildOperatorDependences() {
 // At the end of each step, the holder of phi::DenseTensor in phi::TensorArray
 // is null. Clear these Tensors and leave phi::TensorArray empty, otherwise an
 // exception will occur in the next step
-void ProgramInterpreter::ClearLoDTensorArrayInLocalScope() {
+void ProgramInterpreter::ClearDenseTensorArrayInLocalScope() {
   auto vars = local_scope_->LocalVars();
   for (auto var : vars) {
     if (var->IsType<phi::TensorArray>()) {
@@ -1073,9 +1072,10 @@ void ProgramInterpreter::RunOperator(const Instruction& instr_node) {
     auto& m = instr_node.InplaceBackMap();
     // NOTE(zhiqiu): same logic as TransferInplaceVarsBack() in operator.cc
     for (auto& p : m) {
-      auto* transformed_tensor = GetMutableLoDTensorOrSelectedRowsValueFromVar(
-          var_scope_.VarRef(p.first));
-      auto* original_tensor = GetMutableLoDTensorOrSelectedRowsValueFromVar(
+      auto* transformed_tensor =
+          GetMutableDenseTensorOrSelectedRowsValueFromVar(
+              var_scope_.VarRef(p.first));
+      auto* original_tensor = GetMutableDenseTensorOrSelectedRowsValueFromVar(
           var_scope_.VarRef(p.second));
       original_tensor->ShareDataWith(*transformed_tensor);
       VLOG(4) << "Transfer inplace variable back form "
@@ -1472,7 +1472,7 @@ void ProgramInterpreter::RecordStreamForGC(const Instruction& instr) {
     } else if (
         var->IsType<
             operators::reader::
-                OrderedMultiDeviceLoDTensorBlockingQueueHolder>()) {  // NOLINT
+                OrderedMultiDeviceDenseTensorBlockingQueueHolder>()) {  // NOLINT
       // do nothing
     } else if (var->IsType<phi::SelectedRows>()) {
       TensorRecordStream(
@@ -1762,5 +1762,4 @@ Variable* ProgramInterpreter::DebugVar(const std::string& name) const {
   PADDLE_THROW(common::errors::Unimplemented(
       "DebugVar is not implemented in ProgramInterpreter."));
 }
-}  // namespace framework
-}  // namespace paddle
+}  // namespace paddle::framework

@@ -640,7 +640,7 @@ class Engine:
             outputs_indices = fetch_indices[group_idx]
             logs_out = {}
             for idx in outputs_indices:
-                logs_out["out%d" % (idx)] = outs[idx]
+                logs_out[f"out{idx}"] = outs[idx]
             logs["outputs"] = logs_out
             group_idx += 1
         # logging user fetches
@@ -805,12 +805,20 @@ class Engine:
         # re-run apply_mix2dist_pass to dist accumulator.
         apply_mix2dist_pass(dist_program)
 
+        if mode == "train" and self._strategy.recompute.enable:
+            auto_parallel_recompute_pir_pass = new_pass(
+                "auto_parallel_recompute_pir", {}
+            )
+            auto_parallel_recompute_pir_pass.apply(
+                [dist_program], [startup_program]
+            )
+
         # Part 2: Parallelism search (for full auto-parallel)
         # NOTE make all parallelis search logic work as Pass,
         # and all the Pass in this Part should be optional to allow consistence in dynamic and static mode.
         if self._strategy.auto_mode == "semi-auto":
             # TODO(xxxx) Step 2.1 Entire Graph Completion in Pir.
-            # dist_program = apply_complition_pass(dist_program)
+            # dist_program = apply_completion_pass(dist_program)
             pass
         elif self._strategy.auto_mode == "random" or "full_random":
             # TODO(caozhou) Step 2.3 Basic Random / MCMC Algorithm for Fully Auto Parallel Search.

@@ -84,14 +84,17 @@ void PyLayerOp::Build(pir::Builder &builder,             // NOLINT
 
   auto &op = fwd_block->back();
 
-  std::vector<pir::Attribute> outs_stop_gradient;
+  auto outs_stop_gradient_attr = true;
   for (size_t i = 0; i < op.num_operands(); ++i) {
     argument.AddOutput(op.operand(i).type());
     auto bool_attr = op.operand_source(i).attribute<pir::BoolAttribute>(
         pir::kStopGradientAttrName);
-    outs_stop_gradient.push_back(bool_attr ? bool_attr
-                                           : builder.bool_attr(false));
+    if (!bool_attr || (bool_attr && !bool_attr.data())) {
+      outs_stop_gradient_attr = false;
+    }
   }
+  std::vector<pir::Attribute> outs_stop_gradient(
+      op.num_operands(), builder.bool_attr(outs_stop_gradient_attr));
 
   argument.AddAttribute(
       kBackwardFunctionIdAttrName,
@@ -117,22 +120,22 @@ void PyLayerOp::Print(pir::IrPrinter &printer) {
   auto &os = printer.os;
   auto op = operation();
   printer.PrintOpResult(*op);
-  os << " = pd_op.pylayer";
-
-  if (VLOG_IS_ON(1)) {
-    os << " [id:" << op->id() << "]";
-  }
+  os << " = ";
+  printer.PrintOpName(*op);
+  printer.PrintOpId(*op);
 
   printer.PrintOpOperands(*op);
   printer.PrintAttributeMap(*op);
   os << " -> ";
   printer.PrintOpReturnType(*op);
-  os << "{";
+  os << " {\n";
+  printer.AddIndentation();
   for (auto &item : forward_block()) {
-    os << "\n  ";
     printer.PrintOperation(item);
+    os << "\n";
   }
-  os << "\n }";
+  printer.DecreaseIndentation();
+  os << printer.indentation() << "}";
 }
 
 void PyLayerOp::VerifySig() {

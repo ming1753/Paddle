@@ -292,9 +292,9 @@ def to_static(
             flag = ENV_ENABLE_SOT.get()
             full_graph = not flag
 
-        if sys.version_info >= (3, 14) and not full_graph:
+        if sys.version_info >= (3, 13) and not full_graph:
             warnings.warn(
-                "full_graph=False is not supported in Python 3.14+. Set full_graph=True automatically"
+                "full_graph=False is not supported in Python 3.13+. Set full_graph=True automatically"
             )
             full_graph = True
 
@@ -335,6 +335,7 @@ def to_static(
                 logging_utils.warn(
                     f"`{class_name}.forward` has already been decorated somewhere. It will be redecorated to replace previous one."
                 )
+            function._original_funcs["forward"] = function.forward
             function.forward = decorated(function.forward)
             return function
         else:

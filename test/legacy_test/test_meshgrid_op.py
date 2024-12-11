@@ -76,10 +76,8 @@ class TestMeshgridOp(OpTest):
             out_reshape[i] = self.shape[i]
             out_temp = np.reshape(ins[i], out_reshape)
             outs.append(np.broadcast_to(out_temp, self.shape))
-        self.inputs = {'X': [('x%d' % i, ins[i]) for i in range(len(ins))]}
-        self.outputs = {
-            'Out': [('out%d' % i, outs[i]) for i in range(len(outs))]
-        }
+        self.inputs = {'X': [(f'x{i}', ins[i]) for i in range(len(ins))]}
+        self.outputs = {'Out': [(f'out{i}', outs[i]) for i in range(len(outs))]}
 
     def get_x_shape(self):
         return [100, 200]
@@ -141,13 +139,13 @@ class TestMeshgridOpBFP16OP(TestMeshgridOp):
             outs.append(np.broadcast_to(out_temp, self.shape))
         self.inputs = {
             'X': [
-                ('x%d' % i, convert_float_to_uint16(ins[i]))
+                (f'x{i}', convert_float_to_uint16(ins[i]))
                 for i in range(len(ins))
             ]
         }
         self.outputs = {
             'Out': [
-                ('out%d' % i, convert_float_to_uint16(outs[i]))
+                (f'out{i}', convert_float_to_uint16(outs[i]))
                 for i in range(len(outs))
             ]
         }
@@ -440,10 +438,8 @@ class TestMeshGrid_ZeroDim(TestMeshgridOp):
             out_reshape[i] = self.shape[i]
             out_temp = np.reshape(ins[i], out_reshape)
             outs.append(np.broadcast_to(out_temp, self.shape))
-        self.inputs = {'X': [('x%d' % i, ins[i]) for i in range(len(ins))]}
-        self.outputs = {
-            'Out': [('out%d' % i, outs[i]) for i in range(len(outs))]
-        }
+        self.inputs = {'X': [(f'x{i}', ins[i]) for i in range(len(ins))]}
+        self.outputs = {'Out': [(f'out{i}', outs[i]) for i in range(len(outs))]}
 
     def get_x_shape(self):
         return [1, 2, 3]

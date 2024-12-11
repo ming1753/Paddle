@@ -255,7 +255,7 @@ void DenseTensor::ResizeAndAllocate(const DDim& dims) {
   }
 }
 
-void DenseTensor::ResetLoD(const LoD& legacy_lod) {
+void DenseTensor::ResetLoD(const LegacyLoD& legacy_lod) {
   meta_.legacy_lod = legacy_lod;
 }
 

@@ -78,6 +78,7 @@ DYGRAPH_ONLY_TENSOR_ATTRS_ALLOW_LIST = OrderedSet(
         'value',
         'zero_',
         "__cuda_array_interface__",
+        '__dlpack__',
         "__dlpack_device__",
     ]
 )

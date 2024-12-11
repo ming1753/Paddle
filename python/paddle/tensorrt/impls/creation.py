@@ -29,7 +29,9 @@ from paddle.tensorrt.converter_utils import (
 from paddle.tensorrt.register import converter_registry
 
 
-@converter_registry.register("pd_op.full_int_array", trt_version="8.x")
+@converter_registry.register(
+    "pd_op.full_int_array", trt_version="trt_version_ge=8.0"
+)
 def full_int_array_converter(network, paddle_op, inputs):
     value = paddle_op.attrs()["value"]
     if len(value) == 0:
@@ -39,12 +41,17 @@ def full_int_array_converter(network, paddle_op, inputs):
     return full_int_array_layer.get_output(0)
 
 
-@converter_registry.register("pd_op.full", trt_version="8.x")
+@converter_registry.register("pd_op.full", trt_version="trt_version_ge=8.0")
 def full_converter(network, paddle_op, inputs):
     shape = paddle_op.attrs()["shape"]
     value = paddle_op.attrs().get("value", 1.0)
+    dtype = paddle_op.attrs().get("dtype")
+    if dtype == paddle.int32 or dtype == paddle.int64:
+        out_dtype = np.int32
+    else:
+        out_dtype = np.float32
     full_layer = network.add_constant(
-        shape, np.full(shape, value, dtype=np.float32)
+        shape, np.full(shape, value, dtype=out_dtype)
     )
     return full_layer.get_output(0)
 
@@ -120,7 +127,7 @@ def arange_converter(network, paddle_op, inputs):
 
 @converter_registry.register("pd_op.full_like", trt_version="8.x")
 def full_like_converter(network, paddle_op, inputs):
-    shape = tuple(paddle_op.operands()[0].source().shape)
+    shape = inputs[0].shape
     ndims = len(shape)
 
     out_dtype = int(paddle_op.attrs().get("dtype", None))

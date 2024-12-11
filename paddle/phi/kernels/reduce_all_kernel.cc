@@ -15,7 +15,11 @@
 #include "paddle/phi/kernels/reduce_all_kernel.h"
 
 #include "paddle/phi/backends/all_context.h"
+#include "paddle/phi/common/complex.h"
 #include "paddle/phi/core/kernel_registry.h"
+
+using complex64 = ::phi::dtype::complex<float>;
+using complex128 = ::phi::dtype::complex<double>;
 
 namespace phi {
 
@@ -38,14 +42,32 @@ void AllKernel(const Context& dev_ctx,
 
 }  // namespace phi
 
-PD_REGISTER_KERNEL(
-    all, CPU, ALL_LAYOUT, phi::AllKernel, float, double, int, int64_t, bool) {
+PD_REGISTER_KERNEL(all,
+                   CPU,
+                   ALL_LAYOUT,
+                   phi::AllKernel,
+                   float,
+                   double,
+                   int,
+                   int64_t,
+                   bool,
+                   complex64,
+                   complex128) {
   kernel->OutputAt(0).SetDataType(phi::DataType::BOOL);
 }
 
 #if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
-PD_REGISTER_KERNEL(
-    all, GPU, ALL_LAYOUT, phi::AllKernel, float, double, int, int64_t, bool) {
+PD_REGISTER_KERNEL(all,
+                   GPU,
+                   ALL_LAYOUT,
+                   phi::AllKernel,
+                   float,
+                   double,
+                   int,
+                   int64_t,
+                   bool,
+                   complex64,
+                   complex128) {
   kernel->OutputAt(0).SetDataType(phi::DataType::BOOL);
 }
 #endif

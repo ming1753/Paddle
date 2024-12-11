@@ -202,7 +202,7 @@ static Counts &counts() {
 #define ROBIN_HOOD_PRIVATE_DEFINITION_HAS_NATIVE_WCHART() 1
 #endif
 
-// detect if MSVC supports the pair(std::piecewise_construct_t,...) consructor
+// detect if MSVC supports the pair(std::piecewise_construct_t,...) constructor
 // being constexpr
 #ifdef _MSC_VER
 #if _MSC_VER <= 1900

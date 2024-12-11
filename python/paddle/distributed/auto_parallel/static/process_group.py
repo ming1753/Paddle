@@ -222,19 +222,15 @@ class ProcessGroup:
 
             if core.is_compiled_with_cuda():
                 paddle.set_device(
-                    'gpu:%d' % paddle.distributed.ParallelEnv().dev_id
+                    f'gpu:{paddle.distributed.ParallelEnv().dev_id}'
                 )
             elif core.is_compiled_with_xpu():
                 paddle.set_device(
-                    'xpu:%d' % paddle.distributed.ParallelEnv().dev_id
+                    f'xpu:{paddle.distributed.ParallelEnv().dev_id}'
                 )
             elif genv.device_type in core.get_all_custom_device_type():
                 paddle.set_device(
-                    '%s:%d'
-                    % (
-                        paddle.distributed.ParallelEnv().device_type,
-                        paddle.distributed.ParallelEnv().dev_id,
-                    ),
+                    f'{paddle.distributed.ParallelEnv().device_type!s}:{paddle.distributed.ParallelEnv().dev_id}'
                 )
 
             # TODO(shenliang03): This is a temporary solution to solve the problem of

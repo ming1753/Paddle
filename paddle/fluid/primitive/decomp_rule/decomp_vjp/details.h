@@ -287,21 +287,23 @@ void mean_grad(const Tensor& x,
         axis_data.push_back(i);
       }
     }
+
+    for (int64_t& idx : axis_data) {
+      if (idx < 0) {
+        idx += x_dim.size();
+      }
+    }
+
     if (has_dynamic_shape(x_dim, axis_data)) {
       auto x_shape = shape64<T>(x);
-      factor_tensor =
-          slice<T>(x_shape, {0}, {axis_data[0]}, {axis_data[0] + 1}, {1}, {0});
-      for (size_t i = 1; i < axis_data.size(); ++i) {
-        factor_tensor =
-            factor_tensor *
-            slice<T>(
-                x_shape, {0}, {axis_data[i]}, {axis_data[i] + 1}, {1}, {0});
+      factor_tensor = full<T>({1}, 1.0, x_shape.dtype(), x_shape.place());
+      for (int64_t idx : axis_data) {
+        factor_tensor = factor_tensor * get_slice<T>(x_shape, idx);
       }
       factor_tensor = cast<T>(factor_tensor, x.dtype());
     } else {
       int64_t factor = 1;
       for (int64_t idx : axis_data) {
-        if (idx < 0) idx += x_dim.size();
         factor *= x_dim[idx];
       }
       factor_tensor =
@@ -1251,10 +1253,10 @@ void masked_select_grad(const Tensor& x,
       grad_num *= promoted_out_grad.shape()[i];
     }
 
-    auto end = full<T>({1}, x_num, x.dtype(), x.place());
-    auto start = full<T>({1}, 0, x.dtype(), x.place());
-    auto step = full<T>({1}, 1, x.dtype(), x.place());
-    auto x_arange = backend::arange_with_tensor<T>(
+    auto end = full<T>({1}, x_num, promoted_x.dtype(), x.place());
+    auto start = full<T>({1}, 0, promoted_x.dtype(), x.place());
+    auto step = full<T>({1}, 1, promoted_x.dtype(), x.place());
+    auto x_arange = backend::arange<T>(
         start, end, step, promoted_x.dtype(), promoted_x.place());
 
     auto x_arange_reshape = reshape<T>(x_arange, promoted_x.shape());
@@ -1291,6 +1293,19 @@ void relu_grad(const Tensor& out, const Tensor& out_grad, Tensor* x_grad) {
   if (x_grad) {
     Tensor zeros = full_scalar<T>(0.0, out.dtype());
     auto mask = greater_than<T>(out, zeros);
+    auto res = cast<T>(mask, out.dtype()) * out_grad;
+    set_output<T>(res, x_grad);
+  }
+}
+
+template <typename T>
+void relu6_grad(const Tensor& out, const Tensor& out_grad, Tensor* x_grad) {
+  if (x_grad) {
+    Tensor zeros = full_scalar<T>(0.0, out.dtype());
+    Tensor six = full_scalar<T>(6.0, out.dtype());
+    auto mask_gt = greater_than<T>(out, zeros);
+    auto mask_lt = less_than<T>(out, six);
+    auto mask = bitwise_and<T>(mask_gt, mask_lt);
     auto res = cast<T>(mask, out.dtype()) * out_grad;
     set_output<T>(res, x_grad);
   }
@@ -1805,6 +1820,24 @@ void tile_grad(const Tensor& x,
     }
 
     set_output<T>(x_grad_tmp, x_grad);
+  }
+}
+
+template <typename T>
+void hardsigmoid_grad(const Tensor& out,
+                      const Tensor& out_grad,
+                      float slope,
+                      float offset,
+                      Tensor* x_grad) {
+  if (x_grad) {
+    Tensor zeros = full_scalar<T>(0.0, out.dtype());
+    Tensor one = full_scalar<T>(1.0, out.dtype());
+    auto mask_gt = greater_than<T>(out, zeros);
+    auto mask_lt = less_than<T>(out, one);
+    auto mask = bitwise_and<T>(mask_gt, mask_lt);
+    Tensor slope_t = full_scalar<T>(slope, out.dtype());
+    auto res = cast<T>(mask, out.dtype()) * slope_t * out_grad;
+    set_output<T>(res, x_grad);
   }
 }
 

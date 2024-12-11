@@ -233,13 +233,11 @@ def prepare_grad_outputs(grad_outputs, outputs, state):
         else:
             if output.shape != grad.shape:
                 raise ValueError(
-                    "The shape of grad_output[%d] %s should be the same as the shape of output[%d] %s"
-                    % (i, str(grad.shape), i, str(output.shape))
+                    f"The shape of grad_output[{i}] {grad.shape} should be the same as the shape of output[{i}] {output.shape}"
                 )
             if output.dtype != grad.dtype:
                 warnings.warn(
-                    "The dtype of grad_output[%d] %s is not same as the dtype of output[%d] %s"
-                    % (i, str(grad.dtype), i, str(output.dtype))
+                    f"The dtype of grad_output[{i}] {grad.dtype} is not same as the dtype of output[{i}] {output.dtype}"
                 )
             feedop = grad.get_defining_op()
             update_bwdop_structure(
@@ -873,12 +871,6 @@ def append_backward_ops(
                         # create grad_op
                         before_ops_num = len(bwd_block.ops)
 
-                        # TODO(MarioLulab): `PyLayer.backward` has not supported return `None` yet. Will be supported soon.
-                        if any(zero_flag):
-                            raise ValueError(
-                                "pylayer_op.backward have not supported return `None` yet. Will be supported soon."
-                            )
-
                         with dynamic_shape_prim_vjp_guard(op, inputs):
                             input_grads = paddle.framework.core.call_vjp(
                                 op,
@@ -890,10 +882,8 @@ def append_backward_ops(
                         after_ops_num = len(bwd_block.ops)
 
                         # update grad_op structure
-                        bwd_ops = [
-                            bwd_block.ops[i]
-                            for i in range(before_ops_num, after_ops_num)
-                        ]
+                        bwd_ops = bwd_block.ops[before_ops_num:after_ops_num]
+
                         # update input_grad map
                         update_input_grad_map(
                             op, input_grads, get_real_op_inputs(op)
@@ -913,10 +903,7 @@ def append_backward_ops(
                         after_ops_num = len(bwd_block.ops)
 
                         # update grad_op structure
-                        bwd_ops = [
-                            bwd_block.ops[i]
-                            for i in range(before_ops_num, after_ops_num)
-                        ]
+                        bwd_ops = bwd_block.ops[before_ops_num:after_ops_num]
 
                         # update input_grad map
                         update_input_grad_map(
