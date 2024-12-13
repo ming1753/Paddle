@@ -53,6 +53,7 @@ namespace cub = hipcub;
 #define GPU(str) cu##str
 #endif
 
+// #define DEBUG_TOPP
 PHI_DECLARE_bool(use_air_topp);
 
 namespace phi {
