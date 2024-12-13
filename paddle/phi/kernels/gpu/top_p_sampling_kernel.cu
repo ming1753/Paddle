@@ -31,10 +31,9 @@ namespace cub = hipcub;
 #include <cuda_bf16.h>
 #endif
 
+#include "paddle/common/flags.h"
 #include "paddle/phi/backends/gpu/gpu_context.h"
 #include "paddle/phi/backends/gpu/gpu_device_function.h"
-
-#include "paddle/common/flags.h"
 #include "paddle/phi/core/kernel_registry.h"
 #include "paddle/phi/core/tensor_utils.h"
 #include "paddle/phi/kernels/funcs/gather.cu.h"
@@ -283,7 +282,7 @@ __device__ __forceinline__ void filterAndHistogram(const T* in_buffer,
   if (early_stop) {
     return;
   }
-  // 合并多个block的结果
+  
   for (int i = tid; i < NumBuckets; i += blockDim.x) {
     if (count_histogram_shm[i] > 0) {
       atomicAdd(histogram + i, histogram_shm[i]);
@@ -359,14 +358,11 @@ __global__ void air_topp_sampling(Counter<T>* counters,
   }
 
   if (Pass == 0 || Pass == 1 || previous_len > buf_len) {
-    // 没有写入buffer，滞后一个pass
-    // 表示上一轮没有写入buf
     previous_len = counter->oriLen;
     in_buf = counter->in;
     in_idx_buf = nullptr;
   }
   if (Pass == 0 || current_len > buf_len) {
-    // 当前pass无需写入buffer
     out_buf = nullptr;
     out_idx_buf = nullptr;
   }
@@ -406,7 +402,6 @@ __global__ void air_topp_sampling(Counter<T>* counters,
                                                        count_histogram_shm,
                                                        early_stop);
   __syncthreads();
-  // 保证全局内存操作对所有grid可见
   __threadfence();
 
   // #ifdef DEBUG_TOPP
@@ -530,10 +525,10 @@ __global__ void air_topp_sampling(Counter<T>* counters,
       const auto equal_value = twiddleOut<T>(kthValueBits, false);
 
       const T* last_data =
-          out_buf ? out_buf : in_buf;  // 最后一次Pass的输入数据
+          out_buf ? out_buf : in_buf;
       const int* last_idx_data = out_idx_buf ? out_idx_buf : in_idx_buf;
       const int last_len =
-          out_buf ? current_len : counter->oriLen;  // 最后一次Pass的token长度
+          out_buf ? current_len : counter->oriLen;
 #ifdef DEBUG_TOPP
       if (bid == BATCH_ID && tid == 0) {
         printf("equal_value: %f, last_len: %d\n", equal_value, last_len);
@@ -1061,7 +1056,8 @@ __global__ void KeMatrixTopPBeamTopKFt(const T* src,
 #ifdef DEBUG_TOPP
         printf("bi: %d, top_p: %f, rand_top_p: %f, sum_prob: %f\n",
                bid,
-               top_p_num rand_top_p,
+               top_p_num,
+               rand_top_p,
                sum_prob);
 #endif
         if (sum_prob >= rand_top_p) {
