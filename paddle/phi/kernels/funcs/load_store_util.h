@@ -139,7 +139,7 @@ struct QuantStore {
 
   template <int VecSize>
   __device__ void store(phi::AlignedVector<T, VecSize> &src,  // NOLINT
-                        int64_t idx) {                            // NOLINT
+                        int64_t idx) {                        // NOLINT
     using DstVec = phi::AlignedVector<OutT, VecSize>;
 
     DstVec dst_vec;
