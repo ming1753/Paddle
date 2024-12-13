@@ -33,6 +33,8 @@ namespace cub = hipcub;
 
 #include "paddle/phi/backends/gpu/gpu_context.h"
 #include "paddle/phi/backends/gpu/gpu_device_function.h"
+
+#include "paddle/common/flags.h"
 #include "paddle/phi/core/kernel_registry.h"
 #include "paddle/phi/core/tensor_utils.h"
 #include "paddle/phi/kernels/funcs/gather.cu.h"
@@ -40,15 +42,553 @@ namespace cub = hipcub;
 #include "paddle/phi/kernels/funcs/top_k_function_cuda.h"
 #include "paddle/phi/kernels/primitive/functor_primitives.h"
 
+#ifdef PADDLE_WITH_CUDA
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
+#endif
+
 #ifdef PADDLE_WITH_HIP
 #define GPU(str) hip##str
 #else
 #define GPU(str) cu##str
 #endif
 
-// #define DEBUG_TOPP
+PHI_DECLARE_bool(use_air_topp);
 
 namespace phi {
+
+#if defined(PADDLE_WITH_CUDA) && CUDA_VERSION >= 12000
+template <typename T, typename IdxT = int, typename AccT = T>
+struct alignas(128) Counter {
+  T const* in;
+  IdxT const* inIdx;
+
+  IdxT oriLen;
+
+  AccT sum;
+  IdxT len;
+  float p;
+
+  IdxT previousLen;
+
+  typename cub::Traits<T>::UnsignedBits kthValueBits;
+
+  alignas(128) IdxT filterCnt;
+
+  alignas(128) uint32_t finishedBlockCnt;
+};
+
+template <typename IntType>
+constexpr __host__ __device__ IntType ceilDiv(IntType a, IntType b) {
+  return (a + b - 1) / b;
+}
+
+template <typename IntType>
+constexpr __host__ __device__ IntType alignTo(IntType a, IntType b) {
+  return ceilDiv(a, b) * b;
+}
+
+/**
+ * This function calculate the bufLen, which is the size of buffer.
+ * When the number of candidates for next pass exceeds the bufLen, we choose not
+ * to store the candidates. Otherwise, we will load candidates from the original
+ * input data.
+ */
+template <typename T, typename IdxT>
+__host__ __device__ IdxT calcBufLen(IdxT len) {
+  IdxT constexpr ratio = 2 + sizeof(IdxT) * 2 / sizeof(T);
+
+  IdxT bufLen = len / (ratio * 8);
+  bufLen = alignTo(bufLen, 256);
+  return bufLen;
+}
+
+template <typename T, int BitsPerPass>
+__host__ __device__ constexpr int calcNumPasses() {
+  return ceilDiv<int>(sizeof(T) * 8, BitsPerPass);
+}
+
+template <typename T>
+__device__ typename cub::Traits<T>::UnsignedBits twiddleIn(T key,
+                                                           bool selectMin) {
+  auto bits = reinterpret_cast<typename cub::Traits<T>::UnsignedBits&>(key);
+  bits = cub::Traits<T>::TwiddleIn(bits);
+  if (!selectMin) {
+    bits = ~bits;
+  }
+  return bits;
+}
+
+template <typename T>
+__device__ T twiddleOut(typename cub::Traits<T>::UnsignedBits bits,
+                        bool selectMin) {
+  if (!selectMin) {
+    bits = ~bits;
+  }
+  bits = cub::Traits<T>::TwiddleOut(bits);
+  return reinterpret_cast<T&>(bits);
+}
+
+template <int BitsPerPass>
+__host__ __device__ constexpr int calcNumBuckets() {
+  return 1 << BitsPerPass;
+}
+
+template <typename T, int BitsPerPass, int Pass>
+__device__ constexpr int calcStartBit() {
+  constexpr int tmpBit = sizeof(T) * 8 - (Pass + 1) * BitsPerPass;
+
+  constexpr int startBit = tmpBit < 0 ? 0 : tmpBit;
+  return startBit;
+}
+
+template <typename T, int BitsPerPass, int Pass>
+__device__ constexpr uint32_t calcMask() {
+  static_assert(BitsPerPass <= 31);
+  constexpr int numBits = calcStartBit<T, BitsPerPass, Pass - 1>() -
+                          calcStartBit<T, BitsPerPass, Pass>();
+  return (1 << numBits) - 1;
+}
+
+/**
+ * Find the bucket based on the radix
+ */
+template <typename T, int BitsPerPass>
+__device__ int calcBucket(T x, int startBit, uint32_t mask, bool selectMin) {
+  return (twiddleIn(x, selectMin) >> startBit) & mask;
+}
+
+/**
+ *  Replace histogram with its own prefix sum (step 2 in `airTopPSampling`
+ * description)
+ */
+template <typename IdxT, int BitsPerPass, int BlockSize>
+__device__ void scan(IdxT volatile* histogram, IdxT* histogramOut) {
+  int constexpr numBuckets = calcNumBuckets<BitsPerPass>();
+  if constexpr (numBuckets >= BlockSize) {
+    static_assert(numBuckets % BlockSize == 0);
+    int constexpr itemsPerThread = numBuckets / BlockSize;
+    typedef cub::
+        BlockLoad<IdxT, BlockSize, itemsPerThread, cub::BLOCK_LOAD_TRANSPOSE>
+            BlockLoad;
+    typedef cub::
+        BlockStore<IdxT, BlockSize, itemsPerThread, cub::BLOCK_STORE_TRANSPOSE>
+            BlockStore;
+    typedef cub::BlockScan<IdxT, BlockSize> BlockScan;
+
+    __shared__ union {
+      typename BlockLoad::TempStorage load;
+      typename BlockScan::TempStorage scan;
+      typename BlockStore::TempStorage store;
+    } tempStorage;
+
+    IdxT threadData[itemsPerThread];  // NOLINT
+
+    BlockLoad(tempStorage.load).Load(histogram, threadData);
+    __syncthreads();
+
+    BlockScan(tempStorage.scan).InclusiveSum(threadData, threadData);
+    __syncthreads();
+
+    BlockStore(tempStorage.store).Store(histogramOut, threadData);
+  } else {
+    typedef cub::BlockScan<IdxT, BlockSize> BlockScan;
+    __shared__ typename BlockScan::TempStorage tempStorage;
+
+    IdxT threadData = 0;
+    if (threadIdx.x < numBuckets) {
+      threadData = histogram[threadIdx.x];
+    }
+
+    BlockScan(tempStorage).InclusiveSum(threadData, threadData);
+    __syncthreads();
+
+    if (threadIdx.x < numBuckets) {
+      histogramOut[threadIdx.x] = threadData;
+    }
+  }
+}
+
+template <typename T, int BitsPerPass, int NumBuckets, int Pass>
+__device__ __forceinline__ void filterAndHistogram(const T* in_buffer,
+                                                   const int* in_idx_buffer,
+                                                   T* out_buffer,
+                                                   int* out_idx_buffer,
+                                                   T* out_scores,
+                                                   int64_t* out_ids,
+                                                   int previous_len,
+                                                   Counter<T>* counter,
+                                                   T* histogram,
+                                                   int* count_histogram,
+                                                   T* histogram_shm,
+                                                   int* count_histogram_shm,
+                                                   const bool early_stop) {
+  // scan and filter
+  constexpr int start_bit = calcStartBit<T, BitsPerPass, Pass>();
+  const uint32_t mask = calcMask<T, BitsPerPass, Pass>();
+  constexpr int VecSize = 16 / sizeof(T);
+  const int bid = blockIdx.y, tid = threadIdx.x;
+  using VecT = uint4;
+  union {
+    VecT v;
+    T array[VecSize];
+  } vec;
+  for (int i = (blockIdx.x * blockDim.x + threadIdx.x);
+       i < ceilDiv(previous_len, VecSize);
+       i += blockDim.x * gridDim.x) {
+    vec.v = reinterpret_cast<const VecT*>(in_buffer)[i];
+    if constexpr (Pass == 0) {
+#pragma unroll
+      for (int j = 0; j < VecSize; j++) {
+        if (i * VecSize + j < previous_len) {
+          int bucket =
+              calcBucket<T, BitsPerPass>(vec.array[j], start_bit, mask, false);
+          atomicAdd(histogram_shm + bucket, vec.array[j]);
+          atomicAdd(count_histogram_shm + bucket, 1);
+        }
+      }
+    } else {
+      int* filter_cnt = &counter->filterCnt;
+      const auto kthValueBits = counter->kthValueBits;
+      constexpr int previousStartBit = calcStartBit<T, BitsPerPass, Pass - 1>();
+#pragma unroll
+      for (int j = 0; j < VecSize; j++) {
+        const int idx = i * VecSize + j;
+        if (idx < previous_len) {
+          const auto previousBits =
+              (twiddleIn(vec.array[j], false) >> previousStartBit)
+              << previousStartBit;
+          if (previousBits == kthValueBits) {
+            if (early_stop) {
+              const int pos = in_idx_buffer ? in_idx_buffer[idx] : idx;
+              out_scores[bid] = vec.array[j];
+              out_ids[bid] = pos;
+            }
+            if (out_buffer) {
+              int pos = atomicAdd(filter_cnt, 1);
+              out_buffer[pos] = vec.array[j];
+              out_idx_buffer[pos] = in_idx_buffer ? in_idx_buffer[idx] : idx;
+            }
+            int bucket = calcBucket<T, BitsPerPass>(
+                vec.array[j], start_bit, mask, false);
+            atomicAdd(histogram_shm + bucket, vec.array[j]);
+            atomicAdd(count_histogram_shm + bucket, 1);
+          }
+        }
+      }
+    }
+  }
+  __syncthreads();
+  if (early_stop) {
+    return;
+  }
+  // 合并多个block的结果
+  for (int i = tid; i < NumBuckets; i += blockDim.x) {
+    if (count_histogram_shm[i] > 0) {
+      atomicAdd(histogram + i, histogram_shm[i]);
+      atomicAdd(count_histogram + i, count_histogram_shm[i]);
+    }
+  }
+}
+
+#define BID 106
+#define BATCH_ID 1
+
+template <typename T, int BitsPerPass, int BlockSize, int NumBuckets, int Pass>
+__global__ void air_topp_sampling(Counter<T>* counters,
+                                  T* histograms,
+                                  int* count_histograms,
+                                  T* out,
+                                  int64_t* ids,
+                                  T* buf1,
+                                  int* idx_buf1,
+                                  T* buf2,
+                                  int* idx_buf2,
+                                  int* count_iter,
+                                  int* count_iter_begin,
+                                  const int buf_len) {
+  /***
+   * calc - filter - scan -find
+   * TODO: calc - scan - find - filter
+   ***/
+  const int bid = blockIdx.y;
+  if (count_iter_begin[bid] == count_iter[bid + 1]) {
+    // topk
+    return;
+  }
+
+  const int tid = threadIdx.x;
+  auto counter = counters + bid;
+
+  T current_sum;
+  int previous_len, current_len;
+  if constexpr (Pass == 0) {
+    current_sum = 0;
+    previous_len = counter->len;
+    current_len = counter->len;
+  } else {
+    current_sum = counter->sum;
+    previous_len = counter->previousLen;
+    current_len = counter->len;
+  }
+  if (current_len == 0) {
+    return;
+  }
+  const bool early_stop = (current_len == 1);
+  const T* in_buf = nullptr;
+  const int* in_idx_buf = nullptr;
+  T* out_buf = nullptr;
+  int* out_idx_buf = nullptr;
+  const int buf_offset = bid * buf_len;
+  if constexpr (Pass == 0) {
+    in_buf = counter->in;
+    in_idx_buf = nullptr;
+    out_buf = nullptr;
+    out_idx_buf = nullptr;
+  } else if constexpr (Pass == 1) {
+    in_buf = counter->in;
+    in_idx_buf = nullptr;
+    out_buf = buf1 + buf_offset;
+    out_idx_buf = idx_buf1 + buf_offset;
+  } else {
+    in_buf = buf1 + buf_offset;
+    in_idx_buf = idx_buf1 + buf_offset;
+    out_buf = buf2 + buf_offset;
+    out_idx_buf = idx_buf2 + buf_offset;
+  }
+
+  if (Pass == 0 || Pass == 1 || previous_len > buf_len) {
+    // 没有写入buffer，滞后一个pass
+    // 表示上一轮没有写入buf
+    previous_len = counter->oriLen;
+    in_buf = counter->in;
+    in_idx_buf = nullptr;
+  }
+  if (Pass == 0 || current_len > buf_len) {
+    // 当前pass无需写入buffer
+    out_buf = nullptr;
+    out_idx_buf = nullptr;
+  }
+
+#ifdef DEBUG_TOPP
+  if (blockIdx.x == BID && bid == BATCH_ID && tid == 0) {
+    printf("previous_len: %d, current_len: %d, buf_len: %d, NumBuckets: %d\n",
+           previous_len,
+           current_len,
+           buf_len,
+           NumBuckets);
+  }
+  __syncthreads();
+#endif
+
+  auto histogram = histograms + bid * NumBuckets;
+  auto count_histogram = count_histograms + bid * NumBuckets;
+  __shared__ T histogram_shm[NumBuckets];
+  __shared__ int count_histogram_shm[NumBuckets];
+  for (int i = tid; i < NumBuckets; i += blockDim.x) {
+    histogram_shm[i] = 0;
+    count_histogram_shm[i] = 0;
+  }
+  __syncthreads();
+
+  filterAndHistogram<T, BitsPerPass, NumBuckets, Pass>(in_buf,
+                                                       in_idx_buf,
+                                                       out_buf,
+                                                       out_idx_buf,
+                                                       out,
+                                                       ids,
+                                                       previous_len,
+                                                       counter,
+                                                       histogram,
+                                                       count_histogram,
+                                                       histogram_shm,
+                                                       count_histogram_shm,
+                                                       early_stop);
+  __syncthreads();
+  // 保证全局内存操作对所有grid可见
+  __threadfence();
+
+  // #ifdef DEBUG_TOPP
+  //   if (blockIdx.x == BID && bid == 0 && tid == 0) {
+  //     for (int i = 0; i < NumBuckets; ++i) {
+  //       printf("histogram[%d]: %f, count_histogram[%d]: %d\n", i,
+  //       histogram[i], i, count_histogram[i]);
+  //     }
+  //   }
+  //   __syncthreads();
+  // #endif
+
+  // find last block
+  bool isLastBlock = false;
+  if (threadIdx.x == 0) {
+    uint32_t finished = atomicInc(&counter->finishedBlockCnt, gridDim.x - 1);
+    isLastBlock = (finished == (gridDim.x - 1));
+  }
+
+  if (__syncthreads_or(isLastBlock)) {
+    if (early_stop) {
+      if (threadIdx.x == 0) {
+        counter->previousLen = 0;
+        counter->len = 0;
+      }
+      return;
+    }
+
+    // scan/find
+    // constexpr int WARP_SIZE = 32;
+    constexpr int WARP_COUNT = NumBuckets / WARP_SIZE;
+    namespace cg = cooperative_groups;
+    cg::thread_block block = cg::this_thread_block();
+    cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
+    __shared__ T warpSum[WARP_COUNT];
+    __shared__ cuda::atomic<T, cuda::thread_scope_block> blockSum;
+    for (int i = tid; i < WARP_COUNT; i += BlockSize) {
+      warpSum[i] = 0;
+    }
+    if (tid == 0) {
+      blockSum = 0;
+    }
+    __syncthreads();
+    // Acquire the summation of each 32 buckets
+    for (int i = threadIdx.x; i < NumBuckets; i += BlockSize) {
+      reduce_store_async(
+          warp, warpSum + i / WARP_SIZE, histogram[i], cg::plus<float>{});
+    }
+    __syncthreads();
+    // Acquire the summation of all the 2048 buckets
+    if (threadIdx.x < WARP_SIZE) {
+      reduce_store_async(
+          warp, blockSum, warpSum[threadIdx.x], cg::plus<float>{});
+      reduce_update_async(
+          warp, blockSum, warpSum[threadIdx.x + WARP_SIZE], cg::plus<float>{});
+    }
+    __syncthreads();
+
+    if constexpr (Pass == 0) {
+      current_sum = blockSum * counter->p;
+    }
+
+    if (tid == 0) {
+      T prev = 0;
+
+      // Add 32 elements each step
+      int iStep = 0;
+      int targetStep = 0;
+      for (; iStep < WARP_COUNT; iStep++) {
+        if (warpSum[iStep]) {
+          targetStep = iStep;
+          if ((prev + warpSum[iStep]) >= current_sum) {
+            break;
+          }
+          prev += warpSum[iStep];
+        }
+      }
+
+      int targetIdx = 0;
+      for (int i = targetStep * WARP_SIZE; i < NumBuckets; i++) {
+        if (count_histogram[i]) {
+          targetIdx = i;
+          if ((prev + histogram[i]) >= current_sum) {
+            break;
+          }
+          prev += histogram[i];
+        }
+      }
+      counter->sum =
+          current_sum - prev;  // how many values still are there to find
+      counter->len = count_histogram[targetIdx];  // cur - prev; // number of
+                                                  // values in next pass
+      typename cub::Traits<T>::UnsignedBits bucket = targetIdx;
+      int startBit = calcStartBit<T, BitsPerPass, Pass>();
+      counter->kthValueBits |= bucket << startBit;
+#ifdef DEBUG_TOPP
+      if (bid == BATCH_ID && tid == 0) {
+        printf("targetIdx: %d, count_histogram[%d]: %d, current_sum: %f\n",
+               targetIdx,
+               targetIdx,
+               count_histogram[targetIdx],
+               current_sum);
+      }
+#endif
+    }
+    __syncthreads();
+    constexpr int numPasses = calcNumPasses<T, BitsPerPass>();
+    if constexpr (Pass != numPasses - 1) {
+      for (int i = tid; i < NumBuckets; i += BlockSize) {
+        histogram[i] = 0;
+        count_histogram[i] = 0;
+      }
+    }
+    if (tid == 0) {
+      // recover
+      counter->previousLen = current_len;
+      counter->filterCnt = 0;
+    }
+    if constexpr (Pass == numPasses - 1) {
+      const auto kthValueBits = counter->kthValueBits;
+      const auto equal_value = twiddleOut<T>(kthValueBits, false);
+
+      const T* last_data =
+          out_buf ? out_buf : in_buf;  // 最后一次Pass的输入数据
+      const int* last_idx_data = out_idx_buf ? out_idx_buf : in_idx_buf;
+      const int last_len =
+          out_buf ? current_len : counter->oriLen;  // 最后一次Pass的token长度
+#ifdef DEBUG_TOPP
+      if (bid == BATCH_ID && tid == 0) {
+        printf("equal_value: %f, last_len: %d\n", equal_value, last_len);
+      }
+      __syncthreads();
+#endif
+      for (int i = tid; i < last_len; i += BlockSize) {
+        if (last_data[i] == equal_value) {
+          out[bid] = equal_value;
+          ids[bid] = last_idx_data ? last_idx_data[i] : i;
+        }
+      }
+    }
+  }
+}
+
+template <typename T, int BitsPerPass>
+__global__ void air_topp_init(Counter<T>* counters,
+                              T* histograms,
+                              int* countHistograms,
+                              const T* in,
+                              const T* ps,
+                              curandState_t* curandstate,
+                              const int bsz,
+                              const int vocab_size,
+                              const int buf_len,
+                              const int num_buckets) {
+  const int bid = blockIdx.x;
+  const int tid = threadIdx.x;
+  Counter<T>* counter_now = counters + bid;
+  T* histogram_now = histograms + bid * num_buckets;
+  int* count_histogram_now = countHistograms + bid * num_buckets;
+  const int offset = bid * vocab_size;
+  if (tid == 0) {
+    counter_now->in = in + offset;
+
+    counter_now->len = vocab_size;
+    counter_now->oriLen = vocab_size;
+    counter_now->previousLen = vocab_size;
+
+    const T p = ps[bid];
+    const T rand_p = curand_uniform(curandstate + bid) * p;
+    counter_now->p = rand_p;
+
+    counter_now->sum = 0;
+
+    counter_now->kthValueBits = 0;
+    counter_now->filterCnt = 0;
+    counter_now->finishedBlockCnt = 0;
+  }
+  for (int i = tid; i < num_buckets; i += blockDim.x) {
+    histogram_now[i] = 0;
+    count_histogram_now[i] = 0;
+  }
+}
+#endif
 
 template <typename T>
 struct DataTypeTraits {
@@ -520,8 +1060,7 @@ __global__ void KeMatrixTopPBeamTopKFt(const T* src,
 #ifdef DEBUG_TOPP
         printf("bi: %d, top_p: %f, rand_top_p: %f, sum_prob: %f\n",
                bid,
-               top_p_num,
-               rand_top_p,
+               top_p_num rand_top_p,
                sum_prob);
 #endif
         if (sum_prob >= rand_top_p) {
@@ -1180,91 +1719,187 @@ void TopPSamplingKernel(const Context& dev_ctx,
       bs,
       need_batch_random,
       mode);
+#if defined(PADDLE_WITH_CUDA) && CUDA_VERSION >= 12000
+  if (FLAGS_use_air_topp) {
+    static_assert(std::is_same<T, float>::value,
+                  "air_topp only supports float now!");
+    constexpr int BitsPerPass = 11;
+    constexpr int SAMPLING_BLOCK_SIZE = 512;
+    constexpr int INIT_BLOCK_SIZE = 1024;
+    phi::Allocator::AllocationPtr counter_ptr{nullptr};
+    counter_ptr = phi::memory_utils::Alloc(
+        dev_ctx.GetPlace(),
+        bs * sizeof(Counter<T>),
+        phi::Stream(reinterpret_cast<phi::StreamId>(dev_ctx.stream())));
+    Counter<T>* counters = reinterpret_cast<Counter<T>*>(counter_ptr->ptr());
+    constexpr int numBuckets = calcNumBuckets<BitsPerPass>();
+    const int buf_len = calcBufLen<T>(vocab_size);
+    DenseTensor histograms, countHistograms, buf1, id_buf1, buf2, id_buf2;
+    histograms.Resize(phi::make_ddim({bs, numBuckets}));
+    countHistograms.Resize(phi::make_ddim({bs, numBuckets}));
+    buf1.Resize(phi::make_ddim({bs, buf_len}));
+    id_buf1.Resize(phi::make_ddim({bs, buf_len}));
+    buf2.Resize(phi::make_ddim({bs, buf_len}));
+    id_buf2.Resize(phi::make_ddim({bs, buf_len}));
+    dev_ctx.template Alloc<T>(&histograms);
+    dev_ctx.template Alloc<int>(&countHistograms);
+    dev_ctx.template Alloc<T>(&buf1);
+    dev_ctx.template Alloc<int>(&id_buf1);
+    dev_ctx.template Alloc<T>(&buf2);
+    dev_ctx.template Alloc<int>(&id_buf2);
 
-  size_t temp_storage_bytes = 0;
+    air_topp_init<T, BitsPerPass><<<bs, INIT_BLOCK_SIZE, 0, dev_ctx.stream()>>>(
+        counters,
+        histograms.data<T>(),
+        countHistograms.data<int>(),
+        x.data<T>(),
+        ps.data<T>(),
+        states,
+        bs,
+        vocab_size,
+        buf_len,
+        numBuckets);
 
-  cub::TransformInputIterator<int, SegmentOffsetIter, int*>
-      segment_offsets_t_begin(count_iter_begin.data<int>(),
+    constexpr int VecSize = 16 / sizeof(T);
+
+    const int max_block_num_vocab =
+        ceilDiv(vocab_size, SAMPLING_BLOCK_SIZE * VecSize);
+    auto kernel =
+        air_topp_sampling<T, BitsPerPass, SAMPLING_BLOCK_SIZE, numBuckets, 0>;
+    const int dev_id = 0;
+    int sm_count;
+    int act_blocks_per_sm;
+    cudaDeviceGetAttribute(&sm_count, cudaDevAttrMultiProcessorCount, dev_id);
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &act_blocks_per_sm, kernel, SAMPLING_BLOCK_SIZE, 0);
+    assert(act_blocks_per_sm > 1);
+    const int block_per_wave = sm_count * act_blocks_per_sm;
+    const int block_num_vocab =
+        std::min(max_block_num_vocab, block_per_wave * 4 / bs);  // !!!
+    VLOG(1) << "block_per_wave: " << block_per_wave
+            << ", block_num_vocab: " << block_num_vocab;
+    dim3 grid(block_num_vocab, bs);
+    constexpr int numPasses = calcNumPasses<T, BitsPerPass>();
+    for (int pass = 0; pass < numPasses; ++pass) {
+      VLOG(1) << "pass: " << pass;
+      if (pass == 0) {
+        air_topp_sampling<T, BitsPerPass, SAMPLING_BLOCK_SIZE, numBuckets, 0>
+            <<<grid, SAMPLING_BLOCK_SIZE, 0, dev_ctx.stream()>>>(
+                counters,
+                histograms.data<T>(),
+                countHistograms.data<int>(),
+                out_ptr,
+                ids_ptr,
+                buf1.data<T>(),
+                id_buf1.data<int>(),
+                buf2.data<T>(),
+                id_buf2.data<int>(),
+                count_iter.data<int>(),
+                count_iter_begin.data<int>(),
+                buf_len);
+      } else if (pass == 1) {
+        air_topp_sampling<T, BitsPerPass, SAMPLING_BLOCK_SIZE, numBuckets, 1>
+            <<<grid, SAMPLING_BLOCK_SIZE, 0, dev_ctx.stream()>>>(
+                counters,
+                histograms.data<T>(),
+                countHistograms.data<int>(),
+                out_ptr,
+                ids_ptr,
+                buf1.data<T>(),
+                id_buf1.data<int>(),
+                buf2.data<T>(),
+                id_buf2.data<int>(),
+                count_iter.data<int>(),
+                count_iter_begin.data<int>(),
+                buf_len);
+      } else if (pass == 2) {
+        air_topp_sampling<T, BitsPerPass, SAMPLING_BLOCK_SIZE, numBuckets, 2>
+            <<<grid, SAMPLING_BLOCK_SIZE, 0, dev_ctx.stream()>>>(
+                counters,
+                histograms.data<T>(),
+                countHistograms.data<int>(),
+                out_ptr,
+                ids_ptr,
+                buf1.data<T>(),
+                id_buf1.data<int>(),
+                buf2.data<T>(),
+                id_buf2.data<int>(),
+                count_iter.data<int>(),
+                count_iter_begin.data<int>(),
+                buf_len);
+      } else {
+        PD_THROW("pass must be 0,1 or 2!");
+      }
+    }
+  } else {
+#endif
+    size_t temp_storage_bytes = 0;
+
+    cub::TransformInputIterator<int, SegmentOffsetIter, int*>
+        segment_offsets_t_begin(count_iter_begin.data<int>(),
+                                SegmentOffsetIter(vocab_size));
+
+    cub::TransformInputIterator<int, SegmentOffsetIter, int*>
+        segment_offsets_t_end(count_iter.data<int>(),
                               SegmentOffsetIter(vocab_size));
 
-  cub::TransformInputIterator<int, SegmentOffsetIter, int*>
-      segment_offsets_t_end(count_iter.data<int>(),
-                            SegmentOffsetIter(vocab_size));
+    cub::DeviceSegmentedRadixSort::SortPairsDescending(
+        nullptr,
+        temp_storage_bytes,
+        reinterpret_cast<DataType_*>(const_cast<T*>(x.data<T>())),
+        reinterpret_cast<DataType_*>(const_cast<T*>(sorted_out.data<T>())),
+        inds_input.data<int64_t>(),
+        sorted_id.data<int64_t>(),
+        vocab_size * bs,
+        bs,
+        segment_offsets_t_begin,
+        segment_offsets_t_end + 1,
+        0,
+        sizeof(T) * 8,
+        cu_stream);
 
-  cub::DeviceSegmentedRadixSort::SortPairsDescending(
-      nullptr,
-      temp_storage_bytes,
-      reinterpret_cast<DataType_*>(const_cast<T*>(x.data<T>())),
-      reinterpret_cast<DataType_*>(const_cast<T*>(sorted_out.data<T>())),
-      inds_input.data<int64_t>(),
-      sorted_id.data<int64_t>(),
-      vocab_size * bs,
-      bs,
-      segment_offsets_t_begin,
-      segment_offsets_t_end + 1,
-      0,
-      sizeof(T) * 8,
-      cu_stream);
+    temp_storage_bytes = div_up(temp_storage_bytes, 256) * 256;
+    int64_t temp_size = temp_storage_bytes;
+    DenseTensor temp_storage;
+    temp_storage.Resize(phi::make_ddim({temp_size}));
+    dev_ctx.template Alloc<uint8_t>(&temp_storage);
 
-  temp_storage_bytes = div_up(temp_storage_bytes, 256) * 256;
-  int64_t temp_size = temp_storage_bytes;
-  DenseTensor temp_storage;
-  temp_storage.Resize(phi::make_ddim({temp_size}));
-  dev_ctx.template Alloc<uint8_t>(&temp_storage);
+    cub::DeviceSegmentedRadixSort::SortPairsDescending(
+        temp_storage.data<uint8_t>(),
+        temp_storage_bytes,
+        reinterpret_cast<DataType_*>(const_cast<T*>(x.data<T>())),
+        reinterpret_cast<DataType_*>(const_cast<T*>(sorted_out.data<T>())),
+        inds_input.data<int64_t>(),
+        sorted_id.data<int64_t>(),
+        vocab_size * bs,
+        bs,
+        segment_offsets_t_begin,
+        segment_offsets_t_end + 1,
+        0,
+        sizeof(T) * 8,
+        cu_stream);
 
-  cub::DeviceSegmentedRadixSort::SortPairsDescending(
-      temp_storage.data<uint8_t>(),
-      temp_storage_bytes,
-      reinterpret_cast<DataType_*>(const_cast<T*>(x.data<T>())),
-      reinterpret_cast<DataType_*>(const_cast<T*>(sorted_out.data<T>())),
-      inds_input.data<int64_t>(),
-      sorted_id.data<int64_t>(),
-      vocab_size * bs,
-      bs,
-      segment_offsets_t_begin,
-      segment_offsets_t_end + 1,
-      0,
-      sizeof(T) * 8,
-      cu_stream);
-
-  DispatchTopPSampling<T>(dev_ctx,
-                          sorted_out.data<T>(),
-                          sorted_id.data<int64_t>(),
-                          out_ptr,
-                          ids_ptr,
-                          ps_now.data<T>(),
-                          threshold_data,
-                          states,
-                          p_num,
-                          vocab_size,
-                          bs,
-                          need_batch_random,
-                          count_iter.data<int>(),
-                          count_iter_begin.data<int>(),
-                          mode);
+    DispatchTopPSampling<T>(dev_ctx,
+                            sorted_out.data<T>(),
+                            sorted_id.data<int64_t>(),
+                            out_ptr,
+                            ids_ptr,
+                            ps_now.data<T>(),
+                            threshold_data,
+                            states,
+                            p_num,
+                            vocab_size,
+                            bs,
+                            need_batch_random,
+                            count_iter.data<int>(),
+                            count_iter_begin.data<int>(),
+                            mode);
+#if defined(PADDLE_WITH_CUDA) && CUDA_VERSION >= 12000
+  }
+#endif
 }
 
 }  // namespace phi
 
-#ifdef CUDA_BFLOAT16_AVAILABLE
-PD_REGISTER_KERNEL(top_p_sampling,
-                   GPU,
-                   ALL_LAYOUT,
-                   phi::TopPSamplingKernel,
-                   float,
-                   double,
-                   int,
-                   int64_t,
-                   phi::dtype::float16,
-                   phi::dtype::bfloat16) {}
-#else
-PD_REGISTER_KERNEL(top_p_sampling,
-                   GPU,
-                   ALL_LAYOUT,
-                   phi::TopPSamplingKernel,
-                   float,
-                   double,
-                   int,
-                   int64_t,
-                   phi::dtype::float16) {}
-#endif
+PD_REGISTER_KERNEL(
+    top_p_sampling, GPU, ALL_LAYOUT, phi::TopPSamplingKernel, float) {}

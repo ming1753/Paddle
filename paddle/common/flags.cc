@@ -2026,3 +2026,17 @@ PHI_DEFINE_EXPORTED_int32(
     "Version 2 requires Ampere architecture or higher, "
     "while version 3 requires Hopper architecture.");
 #endif
+
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
+/**
+ * top_p_sampling use air top_p FLAG.
+ * Name: use_air_topp
+ * Since Version: 3.0.0
+ * Value Range: bool, default=false
+ * Example: FLAGS_use_air_topp=true
+ * Note: When FLAGS_use_air_topp is true, top_p sampling will use air top_p.
+ */
+PHI_DEFINE_EXPORTED_bool(use_air_topp,
+                         false,
+                         "Enable align mode for auto parallel");
+#endif
