@@ -44,6 +44,18 @@ __forceinline__ __device__ OutType QuantHelperFunc(const InType input,
       ClipFunc<float>(quant_value, min_bound, max_bound));
 }
 
+template <typename InType>
+__forceinline__ __device__ phi::dtype::float8_e4m3fn QuantHelperFunc(
+    const InType input,
+    const float scale,
+    const int round_type,
+    const float max_bound,
+    const float min_bound) {
+  float quant_value = max_bound * scale * input;
+  return static_cast<phi::dtype::float8_e4m3fn>(
+      ClipFunc<float>(quant_value, min_bound, max_bound));
+}
+
 template <typename T>
 struct Load {
   explicit Load(const T *src) : src_(src) {}
