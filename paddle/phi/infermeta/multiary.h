@@ -1175,8 +1175,7 @@ void moe_dispatchInferMeta(const MetaTensor& X,
                            MetaTensor* token_nums_per_expert,
                            MetaTensor* permute_indices_per_token,
                            MetaTensor* expert_scales_float,
-                           MetaTensor* top_k_indices,
-                           MetaTensor* group_max_prob);
+                           MetaTensor* top_k_indices);
 
 void moe_ffnInferMeta(const MetaTensor& permute_input,
                       const MetaTensor& token_nums_per_expert,

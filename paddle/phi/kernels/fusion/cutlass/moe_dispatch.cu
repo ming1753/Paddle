@@ -44,8 +44,7 @@ void MoeDispatchKernel(const Context& ctx,
                        DenseTensor* token_nums_per_expert,
                        DenseTensor* permute_indices_per_token,
                        DenseTensor* expert_scales_float,
-                       DenseTensor* top_k_indices,
-                       DenseTensor* group_max_prob) {
+                       DenseTensor* top_k_indices) {
   int token_rows = 0;
   auto input_dims = X.dims();
   if (input_dims.size() == 3) {
@@ -58,7 +57,7 @@ void MoeDispatchKernel(const Context& ctx,
   auto gating_dims = gating_output.dims();
   const int expert_num = gating_dims[gating_dims.size() - 1];
 
-  if (group_moe == true) {
+  if (group_moe) {
     // Check if expert_num is divisible by moe_topk, else throw an error
     PADDLE_ENFORCE_EQ(expert_num % moe_topk,
                       0,
@@ -81,27 +80,35 @@ void MoeDispatchKernel(const Context& ctx,
 
   const int num_moe_inputs = AlignTo16(num_rows * moe_topk);
   const int bytes = num_moe_inputs * sizeof(int);
-  
+
   CubKeyValueSorter sorter_;
   sorter_.update_num_experts(expert_num);
-  
+
   const int sorter_ws_size_bytes =
       AlignTo16(sorter_.getWorkspaceSize(moe_topk * num_rows));
   const int sort_tmp_in_out_size = num_moe_inputs * 2 * sizeof(int);
-  
-  DenseTensor ws_ptr_tensor = Empty<int8_t>(ctx, {bytes + sorter_ws_size_bytes + sort_tmp_in_out_size});
-  
+
+  DenseTensor ws_ptr_tensor =
+      Empty<int8_t>(ctx, {bytes + sorter_ws_size_bytes + sort_tmp_in_out_size});
+
   int8_t* ws_ptr = ws_ptr_tensor.data<int8_t>();
   int* source_rows_ = reinterpret_cast<int*>(ws_ptr);
   int8_t* sorter_ws_ptr = reinterpret_cast<int8_t*>(ws_ptr + bytes);
-  int* permuted_experts_ = (int*)(sorter_ws_ptr + sorter_ws_size_bytes);
+  int* permuted_experts_ =
+      reinterpret_cast<int*>(sorter_ws_ptr + sorter_ws_size_bytes);
   int* permuted_rows_ = permuted_experts_ + num_moe_inputs;
 
   top_k_indices->Resize({num_rows, moe_topk});
   int* expert_for_source_row = ctx.template Alloc<int>(top_k_indices);
 
-  group_max_prob->Resize({num_rows, moe_topk});
-  float* group_max_out = ctx.template Alloc<float>(group_max_prob);
+  float* softmax_max_prob = nullptr;
+  if (group_moe) {
+    DenseTensor softmax_max_prob_tensor =
+        Empty<float>(ctx, {num_rows, moe_topk});
+    softmax_max_prob = softmax_max_prob_tensor.data<float>();
+    funcs::SetConstant<GPUContext, float> zero_float;
+    zero_float(ctx, &softmax_max_prob_tensor, false);
+  }
 
   float* softmax_out_;
 
@@ -117,17 +124,21 @@ void MoeDispatchKernel(const Context& ctx,
     softmax_out_ = nullptr;
   }
 
-  VLOG(4) << "num_rows: " << num_rows << ", expert_num: " << expert_num
-          << ", moe_topk: " << moe_topk << ", group_moe: " << group_moe;
+  VLOG(4) << "[MoE Info] "
+          << "num_rows: " << num_rows << ", "
+          << "hidden_size: " << hidden_size << ", "
+          << "num_experts: " << expert_num << ", "
+          << "k: " << moe_topk << ", "
+          << "group_moe: " << std::boolalpha << group_moe;
 
   topk_gating_softmax_kernelLauncher<float>(
       gating_output.data<float>(),
       finished,
       ctx.template Alloc<float>(expert_scales_float),
       softmax_out_,
-      group_max_out,
       expert_for_source_row,
       source_rows_,
+      softmax_max_prob,
       num_rows,
       expert_num,
       moe_topk,

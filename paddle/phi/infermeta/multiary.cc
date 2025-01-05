@@ -6007,8 +6007,7 @@ void moe_dispatchInferMeta(const MetaTensor& X,
                            MetaTensor* token_nums_per_expert,
                            MetaTensor* permute_indices_per_token,
                            MetaTensor* expert_scales_float,
-                           MetaTensor* top_k_indices,
-                           MetaTensor* group_max_prob) {
+                           MetaTensor* top_k_indices) {
   int token_rows = 0;
   auto input_dims = X.dims();
   if (input_dims.size() == 3) {
@@ -6034,10 +6033,6 @@ void moe_dispatchInferMeta(const MetaTensor& X,
   top_k_indices->set_dims({num_rows, moe_topk});
   top_k_indices->set_dtype(DataType::INT32);
   top_k_indices->set_layout(X.layout());
-
-  group_max_prob->set_dims({num_rows, moe_topk});
-  group_max_prob->set_dtype(DataType::FLOAT32);
-  group_max_prob->set_layout(X.layout());
 }
 
 void moe_ffnInferMeta(const MetaTensor& permute_input,

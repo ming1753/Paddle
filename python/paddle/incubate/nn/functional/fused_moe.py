@@ -153,7 +153,6 @@ def moe_dispatch(
             - permute_indices_per_token (Tensor): The index mapping for scattering outputs back to the original order.
             - expert_scales_float (Tensor): The scaling factors for each expert's outputs.
             - top_k_indices (Tensor): The indices of the selected experts for each token.
-            - group_max_prob (Tensor): The maximum probability in each group (used in group MoE).
 
     Examples:
         .. code-block:: python
@@ -170,15 +169,12 @@ def moe_dispatch(
             ...     token_nums_per_expert,
             ...     permute_indices_per_token,
             ...     expert_scales_float,
-            ...     top_k_indices,
-            ...     group_max_prob,
+            ...     top_k_indices
             ... ) = moe_dispatch(x, gating_output, moe_topk, True)
             >>> print(permute_input.shape)
             [7680, 768]
             >>> print(token_nums_per_expert.shape)
             [48]
-            >>> print(group_max_prob.shape)
-            [7680]
 
     """
 
@@ -189,7 +185,6 @@ def moe_dispatch(
             permute_indices_per_token,
             expert_scales_float,
             top_k_indices,
-            group_max_prob,
         ) = _C_ops.moe_dispatch(x, gating_output, moe_topk, group_moe)
         return (
             permute_input,
@@ -197,7 +192,6 @@ def moe_dispatch(
             permute_indices_per_token,
             expert_scales_float,
             top_k_indices,
-            group_max_prob,
         )
 
     helper = LayerHelper('moe_dispatch', **locals())
@@ -215,14 +209,12 @@ def moe_dispatch(
         dtype="float32"
     )
     top_k_indices = helper.create_variable_for_type_inference(dtype="int32")
-    group_max_prob = helper.create_variable_for_type_inference(dtype="float32")
 
     outputs_dict["permute_input"] = permute_input
     outputs_dict["token_nums_per_expert"] = token_nums_per_expert
     outputs_dict["permute_indices_per_token"] = permute_indices_per_token
     outputs_dict["expert_scales_float"] = expert_scales_float
     outputs_dict["top_k_indices"] = top_k_indices
-    outputs_dict["group_max_prob"] = group_max_prob
 
     inputs = {"X": x}
     inputs["gating_output"] = gating_output
@@ -240,7 +232,6 @@ def moe_dispatch(
         permute_indices_per_token,
         expert_scales_float,
         top_k_indices,
-        group_max_prob,
     )
 
 
