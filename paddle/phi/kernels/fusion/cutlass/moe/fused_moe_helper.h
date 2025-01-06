@@ -170,9 +170,13 @@ class MoeHelper {
     const int num_experts = ffn1_dims[0];
     const int k = moe_topk;
 
-    VLOG(4) << "num_rows: " << num_rows << "   " << hidden_size << "   "
-            << inter_size << "    " << num_experts << "k " << k
-            << " group_moe: " << group_moe;
+    VLOG(4) << "[MoE Info] "
+            << "num_rows: " << num_rows << ", "
+            << "hidden_size: " << hidden_size << ", "
+            << "inter_size: " << inter_size << ", "
+            << "num_experts: " << num_experts << ", "
+            << "k: " << k << ", "
+            << "group_moe: " << std::boolalpha << group_moe;
 
     DenseTensor gate_tensor = Empty<float>(ctx, {num_rows, num_experts});
     DenseTensor X_tensor = Empty<float>(ctx, {num_rows, hidden_size});
@@ -231,6 +235,14 @@ class MoeHelper {
     DenseTensor expert_scales_tensor_float = Empty<float>(ctx, {num_rows, k});
     float *expert_scales_float = expert_scales_tensor_float.data<float>();
 
+    float *softmax_max_prob = nullptr;
+    if (group_moe) {
+      DenseTensor softmax_max_prob_tensor = Empty<float>(ctx, {num_rows, k});
+      softmax_max_prob = softmax_max_prob_tensor.data<float>();
+      funcs::SetConstant<GPUContext, float> zero_float;
+      zero_float(ctx, &softmax_max_prob_tensor, false);
+    }
+
     DenseTensor fc1_out_tensor = Empty<T>(ctx, {num_rows * k, inter_size});
     T *fc1_out = fc1_out_tensor.data<T>();
 
@@ -269,7 +281,7 @@ class MoeHelper {
                                               softmax_out_,
                                               expert_for_source_row,
                                               source_rows_,
-                                              nullptr,
+                                              softmax_max_prob,
                                               num_rows,
                                               num_experts,
                                               k,
