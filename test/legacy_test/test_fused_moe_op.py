@@ -116,8 +116,8 @@ class TestFusedMoEOp(OpTest):
 
     def config(self):
         self.x_type = np.float16
-        self.batch_size = 1
-        self.seq_len = 128
+        self.batch_size = 8
+        self.seq_len = 6000
         self.num_expert = 32
         self.d_model = 768
         self.d_feedforward = 3072
