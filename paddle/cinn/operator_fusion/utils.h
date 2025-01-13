@@ -61,9 +61,9 @@ static size_t GetRank(pir::Value value) {
   return value.type().dyn_cast<pir::DenseTensorType>().dims().size();
 }
 
-// FIXME(Aurelius84): 0D Tensor is not compitable with other rank.
+// FIXME(Aurelius84): 0D Tensor is not compatible with other rank.
 // So we need to add a special case for 0D Tensor.
-static size_t GetCompitableRank(pir::Value value) {
+static size_t GetCompatibleRank(pir::Value value) {
   size_t rank = GetRank(value);
   return rank == 0 ? 1 : rank;
 }
@@ -137,6 +137,27 @@ std::vector<T> FilterVector(const std::vector<T>& first, const F& func) {
     }
   }
   return result;
+}
+
+template <typename T, typename F = std::function<bool(T, T)>>
+bool VectorEqual(const std::vector<T>& first,
+                 const std::vector<T>& second,
+                 const F& func = nullptr) {
+  if (first.size() != second.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < first.size(); ++i) {
+    if (func) {
+      if (!func(first[i], second[i])) {
+        return false;
+      }
+    } else {
+      if (first[i] != second[i]) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 template <class A, class B>
@@ -404,7 +425,7 @@ struct ValueDim {
 
 static std::vector<ValueDim> GetAllValueDimFromValue(const pir::Value& v) {
   std::vector<ValueDim> value_dims;
-  size_t rank = GetCompitableRank(v);
+  size_t rank = GetCompatibleRank(v);
   for (size_t i = 0; i < rank; ++i) {
     value_dims.emplace_back(v, i);
   }
@@ -641,6 +662,10 @@ std::vector<Int> ArangeVector(Int start, Int end, Int step = 1) {
   }
   return res;
 }
+
+symbol::DimExpr GetShapeProduct(const std::vector<symbol::DimExpr>& shape,
+                                int start,
+                                int end);
 
 bool ShapeProductEqual(const std::vector<symbol::DimExpr>& in_shape,
                        const std::vector<symbol::DimExpr>& out_shape,

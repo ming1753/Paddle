@@ -19,6 +19,7 @@
 
 #include "paddle/cinn/ir/buffer.h"
 #include "paddle/cinn/ir/ir_base.h"
+#include "paddle/cinn/ir/stmt.h"
 
 namespace cinn {
 namespace ir {
@@ -159,8 +160,10 @@ struct _LoweredFunc_ : public IrNode {
   //! This number doesn't include temp_spaces.
   int num_output_tensors;
 
+  // TODO(Hongqing-work): remove expr body after update all the backend passes.
   //! Body of this function.
   Expr body;
+  stmt::BlockRef body_block;
 
   DeviceAPI device_api{DeviceAPI::UNK};
 
@@ -170,7 +173,7 @@ struct _LoweredFunc_ : public IrNode {
    * The output buffer will be resized to the size required, we leave all the
    * expression here. The allocation and deallocation expressions will insert
    * into the head and tail of the function's body. It supports lazy
-   * allocation/deallocation if the corresponding intristic methods support.
+   * allocation/deallocation if the corresponding intrinsic methods support.
    *
    * Currently, we assume that all the input and output buffers should locate in
    * heap, no other memory type is allowed.

@@ -170,7 +170,7 @@ class TensorVectorizeTeller : public ir::IRMutator<const Expr *> {
       Expr next_idx = ir::ir_utils::IRCopy(indices.back());
       cinn::ir::ir_utils::IrReplaceVarBroadcast(
           &next_idx, Expr(iter_var_), Expr(i));
-      auto gap = cinn::common::AutoSimplify(Expr(next_idx - first_idx));
+      auto gap = cinn::optim::ArithSimplify(Expr(next_idx - first_idx));
       if (!gap.As<IntImm>() || gap.as_int32() != i) {
         VLOG(5) << "Tensor:" << tensor->name
                 << " is not accessed sequentially, next:" << next_idx
@@ -781,7 +781,7 @@ struct VectorizeLoops_ : public IRMutator<Expr *> {
           true,
           ::common::errors::InvalidArgument(
               "The minimum of forloop should be zero, please check."));
-      Expr for_extent = cinn::common::AutoSimplify(forloop->extent);
+      Expr for_extent = cinn::optim::ArithSimplify(forloop->extent);
       Simplify(&for_extent);
       node->extent = for_extent;
       auto *extent_min = for_extent.As<Min>();
@@ -800,7 +800,7 @@ struct VectorizeLoops_ : public IRMutator<Expr *> {
                          "factor";
             }
           },
-          [&](common::HygonDCUArchHIP) {
+          [&](std::variant<common::HygonDCUArchHIP, common::HygonDCUArchSYCL>) {
             if (!forloop->extent.As<IntImm>() ||
                 forloop->extent.as_int32() % forloop->vectorize_info().factor !=
                     0) {
@@ -879,15 +879,17 @@ struct VectorizeLoops_ : public IRMutator<Expr *> {
         body_stmts.insert(
             body_stmts.end(), store_exprs.begin(), store_exprs.end());
       };
-      target.arch.Match([&](common::NVGPUArch) { setNvHygon(); },
-                        [&](std::variant<common::UnknownArch,
-                                         common::X86Arch,
-                                         common::ARMArch>) {
-                          Vectorizer(
-                              new_forloop->loop_var, extent, var_intervals)
-                              .Visit(&new_forloop->body);
-                        },
-                        [&](common::HygonDCUArchHIP) { setNvHygon(); });
+      target.arch.Match(
+          [&](common::NVGPUArch) { setNvHygon(); },
+          [&](std::variant<common::UnknownArch,
+                           common::X86Arch,
+                           common::ARMArch>) {
+            Vectorizer(new_forloop->loop_var, extent, var_intervals)
+                .Visit(&new_forloop->body);
+          },
+          [&](std::variant<common::HygonDCUArchHIP, common::HygonDCUArchSYCL>) {
+            setNvHygon();
+          });
 
       VLOG(2) << "after vectorize body:\n" << node->body;
 
@@ -916,7 +918,7 @@ struct VectorizeLoops_ : public IRMutator<Expr *> {
         inner_for,
         ::common::errors::InvalidArgument(
             "Inner_for is nullptr in UnrollCmpFor function."));
-    Expr inner_for_extent = cinn::common::AutoSimplify(inner_for->extent);
+    Expr inner_for_extent = cinn::optim::ArithSimplify(inner_for->extent);
     Simplify(&inner_for_extent);
     auto *extent_min = inner_for_extent.As<Min>();
     if (extent_min) {
@@ -949,7 +951,7 @@ struct VectorizeLoops_ : public IRMutator<Expr *> {
                                      DeviceAPI::UNK,
                                      inner_for->body,
                                      inner_for->vectorize_info())});
-          Expr new_extent_a = cinn::common::AutoSimplify(le_n->b() + 1);
+          Expr new_extent_a = cinn::optim::ArithSimplify(le_n->b() + 1);
           Expr out_for_a = For::Make(outer_for->loop_var,
                                      outer_for->min,
                                      new_extent_a,
@@ -1019,7 +1021,7 @@ struct VectorizeLoops_ : public IRMutator<Expr *> {
           extent_int % factor == 0 ? extent_trunc : extent_trunc + 1;
       times = cinn::common::make_const(forloop->extent->type(), extent_times);
     } else {
-      times = cinn::common::AutoSimplify(
+      times = cinn::optim::ArithSimplify(
           Div::Make(forloop->extent, make_const(factor)));
       Simplify(&times);
     }

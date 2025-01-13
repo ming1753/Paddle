@@ -27,7 +27,6 @@ limitations under the License. */
 #include "paddle/fluid/framework/details/nccl_op_handle.h"
 #include "paddle/phi/core/distributed/nccl_comm_context.h"
 #include "paddle/phi/core/platform/collective_helper.h"
-COMMON_DECLARE_bool(dynamic_static_unified_comm);
 #endif
 #include "paddle/common/flags.h"
 PD_DECLARE_bool(convert_all_blocks);
@@ -532,15 +531,9 @@ void ReplaceAllReduceOp(const Node &node,
   all_reduce_op_desc.SetInput("X", {all_reduce_var_name});
   all_reduce_op_desc.SetOutput("Out", {all_reduce_var_name});
   int ring_id = -1;
-  if (FLAGS_dynamic_static_unified_comm) {
-    ring_id = phi::distributed::CommContextManager::GetInstance().GetRingId(
-        dynamic_cast<details::NCCLOpHandleBase *>(&op_handle)->GetComm());
-    VLOG(3) << "New CommContextManager gets ring_id: " << ring_id;
-  } else {
-    ring_id = platform::NCCLCommContext::Instance().GetRingId(
-        dynamic_cast<details::NCCLOpHandleBase *>(&op_handle)->GetComm());
-    VLOG(3) << "Old NCCLCommContext gets ring_id: " << ring_id;
-  }
+  ring_id = phi::distributed::CommContextManager::GetInstance().GetRingId(
+      dynamic_cast<details::NCCLOpHandleBase *>(&op_handle)->GetComm());
+  VLOG(3) << "New CommContextManager gets ring_id: " << ring_id;
   all_reduce_op_desc.SetAttr("ring_id", ring_id);
   all_reduce_op_desc.SetAttr("use_calc_stream", false);
   all_reduce_op_desc.SetAttr(OpProtoAndCheckerMaker::OpRoleAttrName(),
@@ -714,7 +707,7 @@ static void GraphToBlock(const Graph &graph,
         graph, removed_vars, &vars_in_graph);
   }
 
-  // add vars_in_graph to blcok
+  // add vars_in_graph to block
   block->clear_vars();
   std::unordered_set<std::string> visited_vars;
   for (proto::VarDesc &var : vars_in_graph) {

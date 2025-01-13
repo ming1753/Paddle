@@ -3141,7 +3141,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::
 
   // local use end scatter(len is node num), reote use before scatter(len is
   // pull size) recompute offsets and parts
-  VLOG(2) << "begin recalc local and remote size and offets";
+  VLOG(2) << "begin recalc local and remote size and offsets";
   for (int i = 0; i < node_size_; i++) {
     size_t local_size = 0;
     size_t remote_size = 0;
@@ -4223,6 +4223,6 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
   }
   return total_send_recv;
 }
-}  // end namespace framework
-}  // end namespace paddle
+}  // namespace framework
+}  // namespace paddle
 #endif

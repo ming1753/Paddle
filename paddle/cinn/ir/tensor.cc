@@ -34,8 +34,6 @@
 #include "paddle/cinn/poly/stage.h"
 #include "paddle/common/enforce.h"
 
-PD_DECLARE_bool(cinn_bucket_compile);
-
 namespace cinn {
 namespace ir {
 
@@ -51,7 +49,7 @@ Tensor _Tensor_::Make(const std::string &name,
                         "Required tensor name shall not be empty."));
   auto n = make_shared<_Tensor_>();
   n->name = name;
-  n->shape = utils::GetCompitableShape(shape);
+  n->shape = utils::GetCompatibleShape(shape);
   n->domain = domain;
   n->reduce_axis = reduce_axis;
   n->set_type(dtype);
@@ -71,7 +69,7 @@ Tensor _Tensor_::Make(const std::string &name,
                         "Required tensor name shall not be empty."));
   auto n = make_shared<_Tensor_>();
   n->name = name;
-  n->shape = utils::GetCompitableShape(shape);
+  n->shape = utils::GetCompatibleShape(shape);
   n->domain = domain;
   n->reduce_axis = reduce_axis;
   n->operation = PlaceholderOp::Make(n->name, n->shape, Float(32));
@@ -178,14 +176,14 @@ Expr Tensor::operator()(const std::vector<Expr> &indices) const {
                     ::common::errors::PreconditionNotMet(
                         "Required tensor shall not be tuple type."));
   auto *node = operator->();
-  const auto compitable_indices =
-      utils::GetCompitableStoreLoadIndices(*this, indices);
+  const auto compatible_indices =
+      utils::GetCompatibleStoreLoadIndices(*this, indices);
 
-  PADDLE_ENFORCE_EQ(compitable_indices.size(),
+  PADDLE_ENFORCE_EQ(compatible_indices.size(),
                     ndims(),
                     ::common::errors::PreconditionNotMet(
                         "number of indices not match the dimension"));
-  return Load::Make(*this, compitable_indices);
+  return Load::Make(*this, compatible_indices);
 }
 
 Expr _Tensor_::inline_expanded(const std::vector<Expr> &indices) {
@@ -245,52 +243,6 @@ void _Tensor_::InitAxis() const {
 bool _Tensor_::has_expression() const {
   return (!is_placeholder_node()) && (!is_tuple_get()) &&
          (!is_buffer_shared_node());
-}
-
-isl::set _Tensor_::GenerateIslDomain() const {
-  // include the reduce axis.
-  std::vector<poly::Dim> dims;
-
-  if (has_expression()) {
-    if (axis_.empty()) InitAxis();
-    auto domain = domain_with_reduce_axis();
-    PADDLE_ENFORCE_EQ(
-        axis_with_reduce().size(),
-        domain.size(),
-        ::common::errors::PreconditionNotMet(
-            "Required axis_with_reduce and domain shall be with same size."));
-    auto _axis_with_reduce = axis_with_reduce();
-    for (int i = 0; i < domain.size(); i++) {
-      auto dim = domain[i];
-      if (dim.type() == type_of<int64_t>()) {
-        if (dim.is_constant()) {
-          dims.emplace_back(_axis_with_reduce[i]->name,
-                            static_cast<int64_t>(0),
-                            static_cast<int64_t>(dim.as_int64() - 1));
-        } else {
-          dims.emplace_back(
-              _axis_with_reduce[i]->name,
-              Expr(static_cast<int64_t>(0)),
-              Sub::Make(dim,
-                        cinn::common::make_const(static_cast<int64_t>(1))));
-        }
-      } else {
-        if (dim.is_constant()) {
-          dims.emplace_back(_axis_with_reduce[i]->name,
-                            static_cast<uint32_t>(0),
-                            dim.as_int32() - 1);
-        } else {
-          dims.emplace_back(_axis_with_reduce[i]->name,
-                            Expr(0),
-                            Sub::Make(dim, cinn::common::make_const(1)));
-        }
-      }
-    }
-  }
-
-  poly::Domain isl_domain(Context::isl_ctx(), name, dims);
-  VLOG(1) << "name:" << this->name << ", domain: " << isl_domain.__str__();
-  return isl_domain.to_isl();
 }
 
 std::vector<Expr *> _Tensor_::expr_fields() {
@@ -491,8 +443,8 @@ bool _Tensor_::HasSameShapeWith(const Tensor &other) const {
   if (shape.size() != other->shape.size()) return false;
 
   for (int i = 0; i < shape.size(); i++) {
-    Expr dim0 = cinn::common::AutoSimplify(shape[i]);
-    Expr dim1 = cinn::common::AutoSimplify(other->shape[i]);
+    Expr dim0 = optim::ArithSimplify(shape[i]);
+    Expr dim1 = optim::ArithSimplify(other->shape[i]);
 
     if (dim0 != dim1) return false;
   }
@@ -664,12 +616,8 @@ Shared<poly::Stage> CreateStage(Tensor tensor) {
   // use it. But it has not been completely removed in the process. it cannot be
   // supported here under dynamic shape. Therefore, we temporarily use fake
   // domain.
-  if (FLAGS_cinn_bucket_compile) {
-    poly::Domain fake_domain(Context::isl_ctx(), "fake_domain", {});
-    isl_domain = fake_domain.to_isl();
-  } else {
-    isl_domain = tensor->GenerateIslDomain();
-  }
+  poly::Domain fake_domain(Context::isl_ctx(), "fake_domain", {});
+  isl_domain = fake_domain.to_isl();
 
   return poly::Stage::New(isl_domain, tensor->body(), tensor.self());
 }

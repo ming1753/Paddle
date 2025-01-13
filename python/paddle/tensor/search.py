@@ -730,7 +730,7 @@ def where(
         ``numpy.where(condition)`` is identical to ``paddle.nonzero(condition, as_tuple=True)``, please refer to :ref:`api_paddle_nonzero`.
 
     Args:
-        condition (Tensor): The condition to choose x or y. When True (nonzero), yield x, otherwise yield y.
+        condition (Tensor): The condition to choose x or y. When True (nonzero), yield x, otherwise yield y, must have a dtype of bool if used as mask.
         x (Tensor|scalar|None, optional): A Tensor or scalar to choose when the condition is True with data type of bfloat16, float16, float32, float64, int32 or int64. Either both or neither of x and y should be given.
         y (Tensor|scalar|None, optional): A Tensor or scalar to choose when the condition is False with data type of bfloat16, float16, float32, float64, int32 or int64. Either both or neither of x and y should be given.
         name (str|None, optional): For details, please refer to :ref:`api_guide_Name`. Generally, no setting is required. Default: None.
@@ -777,6 +777,13 @@ def where(
     y_shape = list(y.shape)
 
     if in_dynamic_mode():
+        # NOTE: `condition` must be a bool Tensor as required in
+        # https://data-apis.org/array-api/latest/API_specification/generated/array_api.where.html#array_api.where
+        if condition.dtype != paddle.bool:
+            raise ValueError(
+                "The `condition` is expected to be a boolean Tensor, "
+                f"but got a Tensor with dtype {condition.dtype}"
+            )
         broadcast_shape = paddle.broadcast_shape(x_shape, y_shape)
         broadcast_shape = paddle.broadcast_shape(
             broadcast_shape, condition_shape
@@ -865,6 +872,14 @@ def where_(
 
     if x is None or y is None:
         raise ValueError("either both or neither of x and y should be given")
+
+    # NOTE: `condition` must be a bool Tensor as required in
+    # https://data-apis.org/array-api/latest/API_specification/generated/array_api.where.html#array_api.where
+    if condition.dtype != paddle.bool:
+        raise ValueError(
+            "The `condition` is expected to be a boolean Tensor, "
+            f"but got a Tensor with dtype {condition.dtype}"
+        )
 
     condition_shape = list(condition.shape)
     x_shape = list(x.shape)

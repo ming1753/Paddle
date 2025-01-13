@@ -1173,7 +1173,7 @@ class NameScope:
             self._children[prefix] = [new_child]
         else:
             new_child = NameScope(
-                prefix + "_%d" % len(self._children[prefix]), self
+                f"{prefix}_{len(self._children[prefix])}", self
             )
             self._children[prefix].append(new_child)
         return new_child
@@ -1264,7 +1264,7 @@ class NameStruct:
             self._children[prefix] = [new_child]
         else:
             new_child = NameStruct(
-                prefix + "_%d" % len(self._children[prefix]), self
+                f"{prefix}_{len(self._children[prefix])}", self
             )
             self._children[prefix].append(new_child)
         return new_child
@@ -3315,8 +3315,7 @@ class Operator:
                             in_args = [in_args]
                         if not in_proto.duplicable and len(in_args) > 1:
                             raise ValueError(
-                                "Input %s expects only one input, but %d are given."
-                                % (in_proto.name, len(in_args))
+                                f"Input {in_proto.name} expects only one input, but {len(in_args)} are given."
                             )
                         in_arg_names = []
                         for index, arg in enumerate(in_args):
@@ -3370,8 +3369,7 @@ class Operator:
                         out_args = [out_args]
                     if not out_proto.duplicable and len(out_args) > 1:
                         raise ValueError(
-                            "Output %s expects only one output, but %d are given."
-                            % (out_proto.name, len(out_args))
+                            f"Output {out_proto.name} expects only one output, but {len(out_args)} are given."
                         )
                     out_arg_names = []
                     for arg in out_args:
@@ -4036,7 +4034,7 @@ def check_if_to_static_diff_with_dygraph(op_type, inplace_map, outputs):
                             and inplace_map.get("Input", None) == "Out"
                         ):
                             raise ValueError(
-                                f"Sorry about what's happend. In to_static mode, {op_type}'s output variable {k} is a viewed Tensor in dygraph. This will result in inconsistent calculation behavior between dynamic and static graphs. If you are sure it is safe, you can call with paddle.base.framework._stride_in_no_check_dy2st_diff() in your safe code block."
+                                f"Sorry about what's happened. In to_static mode, {op_type}'s output variable {k} is a viewed Tensor in dygraph. This will result in inconsistent calculation behavior between dynamic and static graphs. If you are sure it is safe, you can call with paddle.base.framework._stride_in_no_check_dy2st_diff() in your safe code block."
                             )
 
 
@@ -4327,9 +4325,8 @@ class Block:
         )
         if with_details:
             re_add_indent = re.compile(r"\n(.)")
-            res_str = "blocks {\n  idx: %d\n  parent_idx: %d" % (
-                self.idx,
-                self.parent_idx,
+            res_str = (
+                f"blocks {{\n  idx: {self.idx}\n  parent_idx: {self.parent_idx}"
             )
             for var in list(self.vars.values()):
                 res_str += "\n  vars {{\n    {}  }}".format(
@@ -5556,7 +5553,7 @@ class IrGraph:
 
         Args:
             name(str): the name of the persistable variable node.
-            vart_type(core.VarDesc.VarType): the type of the persistable variable node.
+            var_type(core.VarDesc.VarType): the type of the persistable variable node.
             shape(list): the shape of the persistable variable node.
             var_dtype(core.VarDesc.VarType): the data type of the persistable variable node.
 
@@ -5577,7 +5574,7 @@ class IrGraph:
 
         Args:
             name(str): the name of the variable node.
-            vart_type(core.VarDesc.VarType): the type of the variable node.
+            var_type(core.VarDesc.VarType): the type of the variable node.
             shape(list): the shape of the variable node.
             var_dtype(core.VarDesc.VarType): the data type of the variable node.
 
@@ -6852,7 +6849,7 @@ class Program:
         res.blocks = [Block(res, i) for i in range(res.desc.num_blocks())]
         res._sync_with_cpp()
 
-        # Note: The op_role and op_role_var cann't be deleted currently,
+        # Note: The op_role and op_role_var can't be deleted currently,
         # and we will try to remove them in the future.
         common_clipped_attrs_list = ["op_callstack", "with_quant_attr"]
 
@@ -8148,11 +8145,11 @@ def device_guard(device: str | None = None) -> Generator[None, None, None]:
         if device == "cpu":
             raise ValueError("Should not set device id for cpu.")
     if (
-        device not in ["cpu", "gpu", "xpu", "", None]
+        device not in ["cpu", "gpu", "dcu", "xpu", "", None]
         and device not in core.get_all_custom_device_type()
     ):
         raise ValueError(
-            "The Attr(device) should be 'cpu', 'xpu', 'gpu' or custom device, and it can also be empty string or None "
+            "The Attr(device) should be 'cpu', 'xpu', 'dcu', 'gpu' or custom device, and it can also be empty string or None "
             f"when there is no need to specify device. But received {device}"
         )
     if index:
@@ -8229,7 +8226,12 @@ def _get_paddle_place(place):
 
     # GPU
     available_gpu_place = re.match(r"gpu:\d+", place)
-    if place == "gpu_pinned" or place == "gpu" or available_gpu_place:
+    if (
+        place == "gpu_pinned"
+        or place == "gpu"
+        or place == "dcu"
+        or available_gpu_place
+    ):
         if not core.is_compiled_with_cuda():
             raise ValueError(
                 f"The device should not be {available_gpu_place.group()}, since PaddlePaddle is "
@@ -8237,7 +8239,7 @@ def _get_paddle_place(place):
             )
         if place == "gpu_pinned":
             return core.CUDAPinnedPlace()
-        elif place == "gpu":
+        elif place == "gpu" or place == "dcu":
             return core.CUDAPlace(0)
         else:
             place_info_list = place.split(":", 1)

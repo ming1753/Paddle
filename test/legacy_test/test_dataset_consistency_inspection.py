@@ -413,7 +413,6 @@ class TestDataset(unittest.TestCase):
             name="click",
             shape=[-1, 1],
             dtype="int64",
-            lod_level=0,
         )
         slot_data.append(label)
 
@@ -425,7 +424,6 @@ class TestDataset(unittest.TestCase):
                     name=str(feat_name),
                     shape=[-1, 1],
                     dtype='int64',
-                    lod_level=1,
                 )
             )
 
@@ -436,7 +434,6 @@ class TestDataset(unittest.TestCase):
                     name=str(feat_name),
                     shape=[-1, 1],
                     dtype='int64',
-                    lod_level=1,
                 )
             )
 
@@ -448,7 +445,7 @@ class TestDataset(unittest.TestCase):
                 )
             )
 
-        # context_feat_namess
+        # context_feat_names
         for feat_name in range(len_sparse_query + 16, len_sparse_query + 18):
             slot_data.append(
                 paddle.static.data(
@@ -463,7 +460,6 @@ class TestDataset(unittest.TestCase):
                     name=str(feat_name),
                     shape=[-1, 1],
                     dtype='int64',
-                    lod_level=1,
                 )
             )
 
@@ -475,7 +471,7 @@ class TestDataset(unittest.TestCase):
                 )
             )
 
-        # neg context_feat_namess
+        # neg context_feat_names
         for feat_name in range(len_sparse_query + 33, len_sparse_query + 35):
             slot_data.append(
                 paddle.static.data(

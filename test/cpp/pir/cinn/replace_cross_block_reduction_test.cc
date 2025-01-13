@@ -155,7 +155,7 @@ TEST(CrossBlockReductionReplacer, RSLayout) {
           ScheduleBlock(B__reduce_init)
           {
             i0, i1 = axis.bind(i, j)
-            B__reduce_init[i0, i1] = -3.40282346e+38f
+            B__reduce_init[i0, i1] = -3.40282347e+38f
           }
           thread_bind[blockIdx.y] for (reduce_k, 0, 8)
           {

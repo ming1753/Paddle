@@ -37,8 +37,6 @@
 #include "paddle/cinn/operator_fusion/fusion_interface.h"
 #include "paddle/cinn/optim/check_tensor_buffer_map.h"
 #include "paddle/cinn/optim/eliminate_common_global_memory_read.h"
-#include "paddle/cinn/optim/if_fusion.h"
-#include "paddle/cinn/optim/rearrange_load_instruction.h"
 #include "paddle/cinn/optim/schedule_block_dce.h"
 #include "paddle/cinn/optim/transform_gpu_forloop.h"
 #include "paddle/common/ddim.h"
@@ -48,7 +46,6 @@
 #include "paddle/pir/include/dialect/shape/utils/shape_analysis.h"
 
 PD_DECLARE_bool(cinn_use_cuda_vectorize);
-PD_DECLARE_bool(cinn_bucket_compile);
 PD_DECLARE_bool(cinn_check_tensor_buffer_map);
 const int default_priority = 100;
 
@@ -218,6 +215,9 @@ BucketLoweredFuncsWrapper OpLowererImpl::BucketLower(
   }
   // The last func is x86 kernel.
   for (size_t i = funcs.size() - 1; i < funcs.size(); ++i) {
+    if (funcs[i]->body == ir::Expr(-1)) {
+      continue;
+    }
     funcs[i]->name = funcs[i]->name + "_CX86";
     funcs_wrapper.predicate2funcsCX86.emplace_back(cond2func_bodies[i].first,
                                                    funcs[i]);
@@ -275,7 +275,19 @@ std::vector<ir::LoweredFunc> OpLowererImpl::PostProcess(
       continue;
     }
     auto tensor = tensor_map.at(op_result);
-    if (group->HasShapeOrDataExprs(op_result)) {
+    bool contain_unknown_dim = [&]() {
+      bool check = op_result && op_result.type() &&
+                   op_result.type().isa<paddle::dialect::DenseTensorType>();
+      PADDLE_ENFORCE_EQ(
+          check,
+          true,
+          phi::errors::PreconditionNotMet("cinn only support DenseTensorType"));
+      const auto dims =
+          op_result.type().dyn_cast<paddle::dialect::DenseTensorType>().dims();
+      return ::common::contain_unknown_dim(dims);
+    }();
+
+    if (contain_unknown_dim && group->HasShapeOrDataExprs(op_result)) {
       tensor->shape.clear();
       for (size_t i = 0;
            i < group->GetShapeOrDataExprs(op_result).shape().size();
@@ -368,11 +380,9 @@ std::vector<ir::LoweredFunc> OpLowererImpl::PostProcess(
             optim::OptimizeExprGPU(&(func_body));
 #endif
           },
-          [&](common::HygonDCUArchHIP) {
-#ifdef CINN_WITH_HIP
+          [&](std::variant<common::HygonDCUArchHIP, common::HygonDCUArchSYCL>) {
             optim::EliminateCommonGlobalMemoryRead(&(func_body));
             optim::OptimizeExprGPU(&(func_body));
-#endif
           });
     }
 
@@ -529,7 +539,7 @@ std::vector<ir::LoweredFunc> OpLowererImpl::DoOpLower(
           op_func_arg_tensors->push_back(expr.as_tensor_ref());
           expr.as_tensor_ref()->WithBuffer();
         },
-        [&](common::HygonDCUArchHIP) {
+        [&](std::variant<common::HygonDCUArchHIP, common::HygonDCUArchSYCL>) {
           if (!expr.as_tensor_ref()->buffer.defined()) {
             op_func_arg_tensors->push_back(expr.as_tensor_ref());
             expr.as_tensor_ref()->WithBuffer();
@@ -579,31 +589,25 @@ ir::Tensor OpLowererImpl::GetTensor(const OpLoweringGroupPtr& group,
     }
   };
 
-  if (FLAGS_cinn_bucket_compile) {
-    std::vector<ir::Dim> sym_shape;
-    ForEachDimExpr(
-        [&](const auto& sym) { sym_shape.emplace_back(input_id, sym); });
-    if (sym_shape.empty()) {
-      sym_shape.emplace_back(input_id, symbol::DimExpr{1});
-    }
-    auto tensor = lang::CreatePlaceHolder(
-        sym_shape, CompatibleInfo::ConvertIRType(dtype), input_id);
-    auto IsIntType = [](const ::pir::Type& t) {
-      return t.isa<::pir::Int32Type>() || t.isa<::pir::Int64Type>();
-    };
-    if (IsIntType(dtype) && group->HasShapeOrDataExprs(value)) {
-      const auto& tensor_value = details::GetTensorValueFromShapeOrData(
-          group->GetShapeOrDataExprs(value));
-      if (tensor_value.has_value()) {
-        tensor->set_value(*tensor_value);
-      }
-    }
-    return tensor;
-  } else {
-    auto shape = ::common::vectorize<int>(type_info.dims());
-    return lang::CreatePlaceHolder(
-        shape, CompatibleInfo::ConvertIRType(dtype), input_id);
+  std::vector<ir::Dim> sym_shape;
+  ForEachDimExpr(
+      [&](const auto& sym) { sym_shape.emplace_back(input_id, sym); });
+  if (sym_shape.empty()) {
+    sym_shape.emplace_back(input_id, symbol::DimExpr{1});
   }
+  auto tensor = lang::CreatePlaceHolder(
+      sym_shape, CompatibleInfo::ConvertIRType(dtype), input_id);
+  auto IsIntType = [](const ::pir::Type& t) {
+    return t.isa<::pir::Int32Type>() || t.isa<::pir::Int64Type>();
+  };
+  if (IsIntType(dtype) && group->HasShapeOrDataExprs(value)) {
+    const auto& tensor_value = details::GetTensorValueFromShapeOrData(
+        group->GetShapeOrDataExprs(value));
+    if (tensor_value.has_value()) {
+      tensor->set_value(*tensor_value);
+    }
+  }
+  return tensor;
 }
 
 std::vector<ir::Tensor> OpLowererImpl::CollectInputTensor(
@@ -750,44 +754,29 @@ ir::Expr OpLowererImpl::LowerX86(const OpLoweringGroupPtr& group,
   // for some op, it will output more tmp value and regard as
   // XX_0, XX_1, so we log them in tmp_tensor_info;
 
-  auto need_lower_x86 = [&]() -> bool {
-    for (auto* op : ops) {
-      for (size_t i = 0; i < op->num_operands(); ++i) {
-        auto in = op->operand_source(i);
-        if (!in || !in.type()) {
-          continue;
-        }
-        auto type_info = in.type().dyn_cast<paddle::dialect::DenseTensorType>();
-        auto dtype = type_info.dtype();
-        const auto& dims = type_info.dims();
-        std::vector<ir::Dim> sym_shape;
-        // 1. dynamic shape not need lower x86
-        if (::common::contain_unknown_dim(dims)) {
-          return false;
-        }
-        // 2. size < 4 not need lower x86
-        int64_t sym_shape_size = 1;
-        for (int i = 0; i < dims.size(); ++i) {
-          sym_shape_size *= dims[i];
-          if (sym_shape_size > 4) {
-            return false;
-          }
-        }
+  std::vector<::pir::Value> vec_inputs;
+  std::vector<::pir::Value> vec_outputs;
+  for (auto* op : ops) {
+    for (size_t i = 0; i < op->num_operands(); ++i) {
+      auto in = op->operand_source(i);
+      if (!in || !in.type()) {
+        continue;
       }
 
-      std::vector<Type> out_types;
-      std::vector<std::vector<ir::Dim>> out_shapes;
-      CollectOutputInfo(op, &out_types, &out_shapes, group);
-      for (const auto& tt : out_types) {
-        // 3. float16 not need lower x86
-        if (tt.is_float16()) {
-          return false;
-        }
-      }
+      vec_inputs.push_back(in);
     }
-    return true;
-  };
-  if (!need_lower_x86()) {
+
+    for (size_t i = 0; i < op->num_results(); ++i) {
+      auto out = op->result(i);
+      if (!out || !out.type()) {
+        continue;
+      }
+
+      vec_outputs.push_back(out);
+    }
+  }
+
+  if (!paddle::dialect::CanGroupOpRunCpuKernel(vec_inputs, vec_outputs)) {
     return ir::Expr(-1);
   }
 

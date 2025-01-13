@@ -19,13 +19,11 @@ import numpy
 import utils
 
 os.environ['FLAGS_cinn_new_group_scheduler'] = '1'
-os.environ['FLAGS_group_schedule_tiling_first'] = '1'
 os.environ['FLAGS_prim_all'] = 'true'
 os.environ['FLAGS_prim_enable_dynamic'] = 'true'
 os.environ['FLAGS_print_ir'] = '1'
 os.environ['FLAGS_enable_pir_api'] = '1'
 os.environ['FLAGS_use_cinn'] = '1'
-os.environ['FLAGS_cinn_bucket_compile'] = '1'
 os.environ['FLAGS_cinn_new_cluster_op_method'] = '1'
 
 import paddle
@@ -68,7 +66,7 @@ class TestAnchorFusion(unittest.TestCase):
         if kernel_num is not None:
             utils.check_jit_kernel_number(static_compute, kernel_num)
 
-    def test_identiy_iters_fusion(self):
+    def test_identity_iters_fusion(self):
         #        T
         #      / | \
         #     /  |  \
@@ -110,7 +108,7 @@ class TestAnchorFusion(unittest.TestCase):
             x = paddle.ones((16, 32, 64, 128))
             return (x,)
 
-        # This case can't be fused to one kernel because muti-downstream
+        # This case can't be fused to one kernel because multi-downstream
         # transpose op will sink currently.
         self.check_accuracy_and_kernel_num(init, func)
 

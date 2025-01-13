@@ -127,9 +127,9 @@ static int GetRowSize(const Scope& scope, const std::string& name) {
   return -1;
 }
 
-static LoD GetLoDDebug(const Scope& scope, const std::string& name) {
+static LegacyLoD GetLoDDebug(const Scope& scope, const std::string& name) {
   Variable* var = scope.FindVar(name);
-  auto default_lod = LoD({{}});
+  auto default_lod = LegacyLoD({{}});
 
   if (var == nullptr) {
     return default_lod;

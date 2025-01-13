@@ -36,6 +36,7 @@ from ....utils import (
     is_break_graph_api,
     is_break_graph_tensor_methods,
     is_builtin_fn,
+    is_directly_run_api,
     is_not_supported_paddle_layer,
     is_paddle_api,
     magic_method_builtin_dispatch,
@@ -125,8 +126,11 @@ class FunctionVariable(CallableVariable):
     def get_py_value(self, allow_tensor=False):
         return self.value
 
-    def get_code(self) -> types.CodeType:
-        return self.value.__code__
+    def get_code(self) -> VariableBase:
+        code_obj_var = VariableFactory.from_value(
+            self.value.__code__, self.graph, GetAttrTracker(self, "__code__")
+        )
+        return code_obj_var
 
     def bind(self, instance: VariableBase, name: str):
         method_var = MethodVariable(
@@ -212,8 +216,13 @@ class UserDefinedFunctionVariable(FunctionVariable):
                 output = inline_executor.inline_call()
         except SotErrorBase as e:
             self.graph.restore_memo(checkpoint)
+            indent = " " * 4
+            filename = self.value.__code__.co_filename
+            lineno = self.value.__code__.co_firstlineno
+            code_name = self.value.__code__.co_name
+            location_info = f'File "{filename}", line {lineno}, in {code_name}'
             raise BreakGraphError(
-                f"({e}) raised while inline call {self.value.__code__}."
+                f"{location_info} encountered breakgraph error caused by\n{indent}{e}"
             )
         return output
 
@@ -695,6 +704,22 @@ class BuiltinVariable(FunctionVariable):
                     false_fn=lambda x: x,
                 )
                 return handler(*args, **kwargs)
+
+        # If API can be directly called in simulation mode (e.g. user defined native code
+        # without graph affect), we can directly call it.
+        if is_directly_run_api(self.value):
+            from ..function_graph import convert_to_py_value
+
+            res = self.value(
+                *convert_to_py_value(args),
+                **convert_to_py_value(kwargs),
+            )
+
+            return VariableFactory.from_value(
+                res,
+                self.graph,
+                DummyTracker([self, *list(args), *list(kwargs.values())]),
+            )
 
         # Try to inline call the magic function
         magic_methods = magic_method_builtin_dispatch(self.value)

@@ -98,6 +98,8 @@ void AsRealInferMeta(const MetaTensor& input, MetaTensor* output);
 
 void AsComplexInferMeta(const MetaTensor& input, MetaTensor* output);
 
+void BarrierInferMeta(const MetaTensor& x, MetaTensor* out);
+
 void BatchSizeLikeInferMeta(const MetaTensor& x,
                             const std::vector<int>& shape,
                             int x_batch_size_dim,
@@ -587,6 +589,7 @@ void RealAndImagInferMeta(const MetaTensor& x, MetaTensor* out);
 void ReduceSumInferMeta(const MetaTensor& x,
                         const std::vector<int64_t>& axis,
                         bool keep_dim,
+                        DataType dtype,
                         MetaTensor* out);
 
 void ReduceInferMeta(const MetaTensor& x,

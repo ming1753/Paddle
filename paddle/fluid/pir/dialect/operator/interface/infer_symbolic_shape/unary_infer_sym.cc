@@ -883,7 +883,7 @@ bool DiagOpInferSymbolicShape(pir::Operation *op,
     if (x_shape[0].isa<int64_t>() && x_shape[1].isa<int64_t>()) {
       int64_t size_ = 0;
       if (offset_data >= 0) {
-        if (x_shape[0].dyn_cast<int64_t>() >
+        if (x_shape[0].dyn_cast<int64_t>() <
             x_shape[1].dyn_cast<int64_t>() - offset_data) {
           size_ = x_shape[0].dyn_cast<int64_t>();
         } else {
@@ -2779,20 +2779,12 @@ bool Pad3dOpInferSymbolicShape(pir::Operation *op,
                         x_shape.size()));
   const auto &paddings_shape =
       infer_context->GetShapeOrDataForValue(op->operand_source(1));
-  if (!paddings_shape.data().has_value()) {
-    std::stringstream ss;
-    ss << paddings_shape;
-    PADDLE_THROW(
-        common::errors::InvalidArgument("The data of paddings's symbol shape "
-                                        "should have value, but now got [%s].",
-                                        ss.str()));
-  }
   const std::string &data_format =
       op->attribute<pir::StrAttribute>("data_format").AsString();
-
+  const std::vector<symbol::DimExpr> &paddings =
+      paddle::dialect::details::GetDataFromTensorOrTensorList(paddings_shape);
   const std::vector<symbol::DimExpr> &out_dims = [&] {
     std::vector<symbol::DimExpr> out_dims = x_shape;
-    const auto &paddings = paddings_shape.data().value();
     PADDLE_ENFORCE_EQ(paddings.size(),
                       6,
                       common::errors::InvalidArgument(
@@ -3241,8 +3233,7 @@ bool SliceOpInferSymbolicShape(pir::Operation *op,
       const symbol::ShapeOrDataDimExprs &se_shape_data =
           infer_context->GetShapeOrDataForValue(
               op->operand_source(operand_idx));
-      if (se_shape_data.data().has_value()) {
-        *expr_vec = se_shape_data.data().value();
+      if (slice_utils::GetExprVecOfStartEnd(se_shape_data, expr_vec)) {
         return true;
       }
       PADDLE_ENFORCE_EQ(
@@ -3488,7 +3479,7 @@ bool SplitWithNumOpInferSymbolicShape(
       }
     }
     if (count == 1) {
-      // caculate the axis of split_with_num_op
+      // calculate the axis of split_with_num_op
       symbol::TensorListShapeOrDataDimExprs res_list_s_d(
           num, out_s_d(candidate_axis, num));
       infer_context->SetShapeOrDataForValue(
@@ -3762,14 +3753,14 @@ bool TopkOpInferSymbolicShape(pir::Operation *op,
 
   int x_rank = in_dims_sym.size();
 
-  int k = k_shape_or_data.data().value().at(0).Get<int64_t>();
+  symbol::DimExpr k = k_shape_or_data.data().value().at(0);
 
   if (axis < 0) axis += x_rank;
   const auto &out_sym_shape = [&] {
     std::vector<symbol::DimExpr> out_sym_shape;
     for (int i = 0; i < x_rank; ++i) {
       if (i == axis) {
-        out_sym_shape.push_back(symbol::DimExpr(k));
+        out_sym_shape.push_back(k);
       } else {
         out_sym_shape.push_back(in_dims_sym.at(i));
       }

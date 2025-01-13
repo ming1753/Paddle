@@ -16,8 +16,7 @@
 
 #include "paddle/utils/string/split.h"
 
-namespace paddle {
-namespace distributed {
+namespace paddle::distributed {
 // PD_DEFINE_string(cert_path, "./cert.pem", "cert.pem path");
 // PD_DEFINE_string(key_path, "./key.pem", "key.pem path");
 std::shared_ptr<HeterServer> HeterServer::s_instance_ = nullptr;
@@ -113,7 +112,7 @@ int SendAndRecvVariableHandler::SaveInSwitchWithShard(
   VLOG(4) << "entering SaveInSwitchWithShard";
   int32_t group_id = request->group_id();
   if (group_id >= FLAGS_heter_world_size) {
-    LOG(ERROR) << "group id exceed maxmium";
+    LOG(ERROR) << "group id exceed maximum";
   }
   auto& local_shard = _local_shards[group_id];
   auto& request_io_buffer = cntl->request_attachment();
@@ -258,5 +257,4 @@ int SendAndRecvVariableHandler::QueryInSwitchWithScope(
   VLOG(4) << "heter server QueryInSwitchWithScope done";
   return 0;
 }
-}  // end namespace distributed
-}  // namespace paddle
+}  // namespace paddle::distributed

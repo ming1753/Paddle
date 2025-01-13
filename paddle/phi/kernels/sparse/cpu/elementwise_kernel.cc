@@ -26,8 +26,7 @@ limitations under the License. */
 #include "paddle/phi/kernels/sparse/empty_kernel.h"
 #include "paddle/phi/kernels/sparse/sparse_utils_kernel.h"
 
-namespace phi {
-namespace sparse {
+namespace phi::sparse {
 
 template <typename T, typename Functor>
 struct BinaryOPWithZeroCompareFunctor {
@@ -241,11 +240,11 @@ void ElementWiseCooKernelImpl(const Context& dev_ctx,
         common::make_ddim(
             {static_cast<int64_t>(sparse_dim), static_cast<int64_t>(nnz)}),
         DataLayout::NCHW);
-    auto indeces_dim = common::vectorize(
+    auto indices_dim = common::vectorize(
         slice_ddim(x.values().dims(), 1, x.values().dims().size()));
-    indeces_dim.insert(indeces_dim.begin(), nnz);
+    indices_dim.insert(indices_dim.begin(), nnz);
     DenseTensorMeta values_meta(
-        x.dtype(), common::make_ddim(indeces_dim), DataLayout::NCHW);
+        x.dtype(), common::make_ddim(indices_dim), DataLayout::NCHW);
     phi::DenseTensor out_indices = phi::Empty(dev_ctx, std::move(indices_meta));
     phi::DenseTensor out_values = phi::Empty(dev_ctx, std::move(values_meta));
 
@@ -327,8 +326,7 @@ DEFINE_COO_ELEMENTWISE_KERNEL(Subtract)
 DEFINE_COO_ELEMENTWISE_KERNEL(Multiply)
 DEFINE_COO_ELEMENTWISE_KERNEL(Divide)
 
-}  // namespace sparse
-}  // namespace phi
+}  // namespace phi::sparse
 
 using complex64 = ::phi::dtype::complex<float>;
 using complex128 = ::phi::dtype::complex<double>;

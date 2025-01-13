@@ -47,6 +47,10 @@ set(PYBIND_DEPS
     type_info
     auto_parallel)
 
+if(WITH_GPU)
+  list(APPEND PYBIND_DEPS gpu_event_timer)
+endif()
+
 if(WITH_CINN)
   set(PYBIND_DEPS ${PYBIND_DEPS} pir_transforms cinn_transforms
                   sub_graph_checker add_cinn_pass)
@@ -140,6 +144,7 @@ set(PYBIND_SRCS
     auto_parallel_py.cc
     sot/eval_frame_tools.cc
     sot/cpython_internals.c
+    sot/frame_proxy.c
     sot/eval_frame.c
     sot/guards.cc
     op_callstack_utils.cc

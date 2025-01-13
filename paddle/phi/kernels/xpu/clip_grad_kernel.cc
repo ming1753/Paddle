@@ -36,7 +36,7 @@ void ClipGradKernel(const Context& ctx,
                       x.numel(),
                       static_cast<XPUDataType>(min.to<T>()),
                       static_cast<XPUDataType>(max.to<T>()));
-  PADDLE_ENFORCE_XDNN_SUCCESS(r, "clip_grad");
+  PADDLE_ENFORCE_XDNN_SUCCESS(r, "clamp_grad");
 }
 }  // namespace phi
 

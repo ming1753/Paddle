@@ -1229,7 +1229,7 @@ class Completer:
             struct_name = ops[i].struct_name
             m = regex.search(struct_name)
             if not m:
-                # only assgin op created by reshard is allowed
+                # only assign op created by reshard is allowed
                 if (
                     ops[i].type == "assign"
                     and "reshard_api" in ops[i].output_arg_names[0]

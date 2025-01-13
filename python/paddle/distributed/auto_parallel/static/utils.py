@@ -64,6 +64,7 @@ partition_skip_op_list = [
     "cf.tuple_push",
     "cf.tuple_pop",
     "cf.stack_create",
+    "cf.has_elements",
 ]
 
 
@@ -583,7 +584,12 @@ def _check_dist_attr(dist_attr):
                     "The type of distributed attribute should be 'dict', "
                     f"but got '{type(value)}'"
                 )
-            attr = ['process_shape', 'process_group', 'dims_mapping']
+            attr = [
+                'process_shape',
+                'process_group',
+                'dims_mapping',
+                'dim_names',
+            ]
             if list(value.keys()) != attr:
                 raise ValueError(
                     "The key of distributed attribute should be "
@@ -865,6 +871,7 @@ def get_dist_attr(program, dist_context=None):
                     "process_shape": process_mesh.shape,
                     "process_group": process_mesh.process_ids,
                     "dims_mapping": var_dist_attr.dims_mapping,
+                    "dim_names": process_mesh.dim_names,
                 }
     else:
         from .dist_context import get_default_distributed_context
@@ -879,10 +886,12 @@ def get_dist_attr(program, dist_context=None):
                 )
                 process_mesh = tensor_dist_attr.process_mesh
                 dims_mapping = tensor_dist_attr.dims_mapping
+                dim_names = tensor_dist_attr.process_mesh.dim_names
                 dist_attr[var.name] = {
                     "process_shape": process_mesh.shape,
                     "process_group": process_mesh.process_ids,
                     "dims_mapping": dims_mapping,
+                    "dim_names": dim_names,
                 }
     return dist_attr
 
@@ -1118,10 +1127,15 @@ def _complete_op_dist_attr(program, block=None):
                 tmp_attr = operand.dist_attr()
                 if tmp_attr is None:
                     operand_attrs.append(pir.Attribute())
+                    value_mesh = None
+                    tmp_op_dist_attr = operand.get_defining_op().dist_attr
+                    if tmp_op_dist_attr is not None:
+                        value_mesh = tmp_op_dist_attr.process_mesh
                 else:
                     operand_attrs.append(tmp_attr)
-                    if tmp_attr.process_mesh not in meshes:
-                        meshes.append(tmp_attr.process_mesh)
+                    value_mesh = tmp_attr.process_mesh
+                if value_mesh is not None and value_mesh not in meshes:
+                    meshes.append(value_mesh)
 
             for result in op.results():
                 tmp_attr = result.dist_attr()
@@ -1773,7 +1787,7 @@ def to_list(value):
 
 def debug_program(program, path, name):
     filename = os.path.join(
-        path, name + '_program' + ".%d" % (paddle.distributed.get_rank())
+        path, f"{name}_program.{paddle.distributed.get_rank()}"
     )
     with open(filename, 'w') as f:
         f.write(str(program))
@@ -2737,6 +2751,48 @@ def split_mesh(global_mesh: ProcessMesh, sub_mesh_dim: int):
     )
     sub_mesh_list = []
     for sub_process_ids in splitted_process_ids:
-        sub_mesh_list.append(ProcessMesh(sub_process_ids))
+        sub_mesh_list.append(
+            ProcessMesh(sub_process_ids, global_mesh.dim_names)
+        )
 
     return sub_mesh_list
+
+
+# Note: This function is intended for internal use within the PaddlePaddle framework for optimizing computational graphs.
+def update_pylayer_output(trival_value):
+    """
+    Update the subblock within a pylayer operation by modifying its output argument.
+
+    This function optimizes a pylayer operation by removing unnecessary outputs from the 'cf.yield' step.
+
+    Args:
+        trivale_value (pir::Value): The output argument of the pylayer operation to be modified.
+
+    Example:
+        (1) Original pylayer operation:
+            (%1, %2) = "pd_op.pylayer" (%0) {
+                () = "cf.tuple_pop" [id:1]
+                (%3, %4) = "dist_op.xxx" [id:2]
+                () = "cf.yield" [id:3] (%3, %4)
+            }
+        (2) After calling `update_pylayer_output(%4)`, the updated pylayer operation removes the unused output:
+            (%1) = "pd_op.pylayer" (%0) {
+                () = "cf.tuple_pop" [id:1]
+                (%3) = "dist_op.xxx" [id:2]
+                () = "cf.yield" [id:3] (%3)
+            }
+
+    Args:
+        trivale_value(pir::Value): The output argument of the pylayer op to be updated.
+    """
+    define_op = trival_value.get_defining_op()
+    if define_op.get_parent_block().parent_op.name() != "pd_op.pylayer":
+        return
+    paddle.pir.set_insertion_point(define_op)
+    fake_value = paddle.static.data(
+        name="_fake_pylayer_out",
+        shape=trival_value.shape,
+        dtype=trival_value.dtype,
+    )
+    fake_value.set_type(trival_value.type())
+    trival_value.replace_all_uses_with(fake_value)

@@ -335,6 +335,7 @@ def to_static(
                 logging_utils.warn(
                     f"`{class_name}.forward` has already been decorated somewhere. It will be redecorated to replace previous one."
                 )
+            function._original_funcs["forward"] = function.forward
             function.forward = decorated(function.forward)
             return function
         else:
@@ -1434,7 +1435,7 @@ def save(
         if combine_params:
             if use_pir_api():
                 # NOTE(Ruting): concrete_program has been pruned when init partialProgramLayer,
-                # so we do not neet to prune again.
+                # so we do not need to prune again.
 
                 for var in concrete_program.main_program.list_vars():
                     if var.persistable:

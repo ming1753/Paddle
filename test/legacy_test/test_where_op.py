@@ -943,6 +943,37 @@ class TestWhereOpError(unittest.TestCase):
             self.assertRaises(ValueError, paddle.where, cond, a)
 
 
+class TestWhereDygraphAPINonBoolCondition(unittest.TestCase):
+    def test_condition_with_wrong_dtype(self):
+        with base.dygraph.guard():
+            cond = paddle.to_tensor([True, False])
+
+            for dtype in [
+                paddle.int64,
+                paddle.int32,
+                paddle.float32,
+                paddle.float64,
+            ]:
+                cond_wrong_dtype = cond.to(dtype)
+                with self.assertRaises(ValueError):
+                    paddle.where(cond_wrong_dtype, 1, 0)
+
+    def test_condition_inplace_with_wrong_dtype(self):
+        with base.dygraph.guard():
+            cond = paddle.to_tensor([True, False])
+
+            x = paddle.zeros_like(cond).astype("float32")
+            for dtype in [
+                paddle.int64,
+                paddle.int32,
+                paddle.float32,
+                paddle.float64,
+            ]:
+                cond_wrong_dtype = cond.to(dtype)
+                with self.assertRaises(ValueError):
+                    x = x.where_(cond_wrong_dtype, x, x)
+
+
 if __name__ == "__main__":
     paddle.enable_static()
     unittest.main()

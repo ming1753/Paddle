@@ -45,7 +45,9 @@
 #ifdef PADDLE_WITH_CINN
 #include "paddle/fluid/framework/new_executor/instruction/cinn_jit_instruction.h"
 #endif
-
+#ifdef PADDLE_WITH_CUSTOM_DEVICE
+#include "paddle/fluid/framework/new_executor/instruction/custom_engine_instruction.h"
+#endif
 #include "paddle/fluid/framework/new_executor/instruction/builtin_combine_instruction.h"
 #include "paddle/fluid/framework/new_executor/instruction/control_flow/assert_instruction.h"
 #include "paddle/fluid/framework/new_executor/instruction/control_flow/has_elements_instruction.h"
@@ -79,7 +81,6 @@
 #include "paddle/fluid/platform/device/gpu/nccl_helper.h"
 #include "paddle/phi/core/distributed/comm_context_manager.h"
 #include "paddle/phi/core/distributed/nccl_comm_context.h"
-COMMON_DECLARE_bool(dynamic_static_unified_comm);
 #endif
 #include "paddle/fluid/framework/new_executor/collect_shape_manager.h"
 #include "paddle/fluid/framework/new_executor/nan_inf_utils.h"
@@ -478,7 +479,7 @@ void PirInterpreter::CheckCUDAGraphBeforeRun(
 #endif
 }
 
-void PirInterpreter::ClearLoDTensorArrayInLocalScope() {
+void PirInterpreter::ClearDenseTensorArrayInLocalScope() {
   auto vars = local_scope_->LocalVars();
   for (auto var : vars) {
     if (var->IsType<phi::TensorArray>()) {
@@ -532,6 +533,7 @@ void PirInterpreter::UpdateSyncOpNum() {
 void PirInterpreter::UpdateNcclOpNum() {
   static std::set<std::string> nccl_op_set = {
       "pd_op.c_softmax_with_cross_entropy",
+      "pd_op.c_softmax_with_multi_label_cross_entropy",
       "pd_op.c_allgather",
       "pd_op.c_allreduce_avg",
       "pd_op.c_allreduce_max",
@@ -569,6 +571,7 @@ void PirInterpreter::UpdateNcclOpNum() {
       "pd_op.all_reduce",
       "pd_op.reduce",
       "pd_op.c_softmax_with_cross_entropy_grad",
+      "pd_op.c_softmax_with_multi_label_cross_entropy_grad",
       "pd_op.c_allgather_grad",
       "pd_op.c_allreduce_max_grad",
       "pd_op.c_allreduce_min_grad",
@@ -604,6 +607,7 @@ void PirInterpreter::UpdateNcclOpNum() {
       "pd_op.all_reduce_grad",
       "pd_op.reduce_grad",
       "pd_op.c_softmax_with_cross_entropy_",
+      "pd_op.c_softmax_with_multi_label_cross_entropy_",
       "pd_op.c_allgather_",
       "pd_op.c_allreduce_avg_",
       "pd_op.c_allreduce_max_",
@@ -641,6 +645,7 @@ void PirInterpreter::UpdateNcclOpNum() {
       "pd_op.all_reduce_",
       "pd_op.reduce_",
       "pd_op.c_softmax_with_cross_entropy_grad_",
+      "pd_op.c_softmax_with_multi_label_cross_entropy_grad_",
       "pd_op.c_allgather_grad_",
       "pd_op.c_allreduce_max_grad_",
       "pd_op.c_allreduce_min_grad_",
@@ -955,16 +960,25 @@ void PirInterpreter::BuildInstruction() {
       vec_instruction_base_.emplace_back(
           std::make_unique<CustomKernelInstruction>(
               op_idx++, place_, &op, *(value_exe_info_.get())));
+    } else if (paddle::dialect::IsCustomEngineOp(&op)) {
+#ifdef PADDLE_WITH_CUSTOM_DEVICE
+      CREATE_INSTR(CustomEngineInstruction);
+#else
+      PADDLE_THROW(common::errors::PreconditionNotMet(
+          "Program has CustomEngineOp and must compile Paddle use "
+          "-DWITH_CUSTOM_DEVICE=ON"));
+#endif
     } else {
       PADDLE_THROW(common::errors::Unimplemented(
-          "Now only support pd_kernel, onednn_kernel, custom_kernel, trt_op "
+          "Now only support pd_kernel, onednn_kernel, custom_kernel, trt_op, "
+          "custom_engine_op "
           "and cinn dialect."));
     }
   }
 }
 
 std::string PirInterpreter::DebugInstructions() {
-  // log formate: var[101] = pd_op.relu(var[100]) or for inplace op var[100] =
+  // log format: var[101] = pd_op.relu(var[100]) or for inplace op var[100] =
   // pd_op.relu_(var[100])
   std::stringstream ss;
   ss << "{outputs}"
@@ -1180,22 +1194,16 @@ void PirInterpreter::RecordStreamForGC(InstructionBase* instr) {
         op->attribute<::pir::BoolAttribute>("use_calc_stream").data() ==
             false) {
       int ring_id = op->attribute<::pir::Int32Attribute>("ring_id").data();
-      if (FLAGS_dynamic_static_unified_comm) {
-        const auto& comm_context_manager =
-            phi::distributed::CommContextManager::GetInstance();
-        stream = static_cast<phi::distributed::NCCLCommContext*>(
-                     comm_context_manager.Get(std::to_string(ring_id)))
-                     ->GetStream();
-      } else {
-        stream = platform::NCCLCommContext::Instance()
-                     .Get(ring_id, instr->DeviceContext().GetPlace())
-                     ->stream();
-      }
+      const auto& comm_context_manager =
+          phi::distributed::CommContextManager::GetInstance();
+      stream = static_cast<phi::distributed::NCCLCommContext*>(
+                   comm_context_manager.Get(std::to_string(ring_id)))
+                   ->GetStream();
     }
   }
 #endif
-  auto TensorRecordStream = [&stream, &instr, &skip_record_stream](
-                                phi::DenseTensor& tensor) {
+  auto TensorRecordStream = [&stream,
+                             &skip_record_stream](phi::DenseTensor& tensor) {
     auto allocation = tensor.Holder();
     if (allocation == nullptr) {
       return;
@@ -1261,7 +1269,7 @@ void PirInterpreter::RecordStreamForGC(InstructionBase* instr) {
     } else if (
         var->IsType<
             operators::reader::
-                OrderedMultiDeviceLoDTensorBlockingQueueHolder>()) {  // NOLINT
+                OrderedMultiDeviceDenseTensorBlockingQueueHolder>()) {  // NOLINT
       // do nothing
     } else if (var->IsType<phi::SelectedRows>()) {
       TensorRecordStream(
@@ -1413,7 +1421,7 @@ void PirInterpreter::CalculateLastLiveOps() {
   }
   VLOG(4) << "var_ref_count_.size() : " << var_ref_count_.size();
   for (size_t i = 0; i < last_live_ops_.size(); ++i) {
-    std::set<size_t> minumum_last_live_ops;
+    std::set<size_t> minimum_last_live_ops;
     for (size_t item : last_live_ops_[i]) {
       bool not_before_any = true;
       // find the op that is not executed before any
@@ -1429,11 +1437,11 @@ void PirInterpreter::CalculateLastLiveOps() {
         VLOG(6) << "last live op of var " << i << " "
                 << value_exe_info_->GetNameById(static_cast<int>(i)) << " : "
                 << item << " " << vec_instruction_base_[item]->Name();
-        minumum_last_live_ops.insert(item);
+        minimum_last_live_ops.insert(item);
         vec_instruction_base_[item]->AddGCCheckVar(i);
       }
     }
-    last_live_ops_[i] = minumum_last_live_ops;
+    last_live_ops_[i] = minimum_last_live_ops;
     var_ref_count_[i] = static_cast<int>(last_live_ops_[i].size());
   }
   VLOG(4) << "shrink the last_live_ops list for all vars in skip_gc_vars";
@@ -1544,7 +1552,7 @@ paddle::framework::FetchList PirInterpreter::Run(
   }
 
   if (HasLocalScope()) {
-    ClearLoDTensorArrayInLocalScope();
+    ClearDenseTensorArrayInLocalScope();
   }
 
   // return Fetch Tensors
@@ -1623,7 +1631,7 @@ FetchList PirInterpreter::Run(const std::vector<std::string>& feed_names,
   }
 
   if (HasLocalScope()) {
-    ClearLoDTensorArrayInLocalScope();
+    ClearDenseTensorArrayInLocalScope();
   }
 
   framework::FetchList fetch_res;

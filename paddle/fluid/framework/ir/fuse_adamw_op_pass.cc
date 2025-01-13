@@ -18,9 +18,7 @@
 #include "paddle/fluid/framework/operator.h"
 #include "paddle/fluid/platform/enforce.h"
 
-namespace paddle {
-namespace framework {
-namespace ir {
+namespace paddle::framework::ir {
 
 std::vector<std::string> GetNodeNames(const std::vector<Node *> &node_vector) {
   std::vector<std::string> out_vector;
@@ -194,7 +192,7 @@ bool InitAndCheckAttrs(const size_t &found_adamw_count,
 
   // Get attrs and block
   if (found_adamw_count == 0) {
-    // Get blokc
+    // Get block
     config->block = adamw_op_desc->Block();
     // Get attrs
     config->beta1 = PADDLE_GET_CONST(float, adamw_op_desc->GetAttr("beta1"));
@@ -312,8 +310,6 @@ ir::Graph *FuseAdamWPass::FuseAdamWFun(ir::Graph *graph,
   return graph;
 }
 
-}  // namespace ir
-}  // namespace framework
-}  // namespace paddle
+}  // namespace paddle::framework::ir
 
 REGISTER_PASS(fuse_adamw_op_pass, paddle::framework::ir::FuseAdamWPass);

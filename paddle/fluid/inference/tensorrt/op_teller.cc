@@ -946,12 +946,18 @@ struct SimpleOpTypeSetTeller : public Teller {
 
       auto resize_inputs = desc.Inputs();
       if (resize_inputs.find("SizeTensor") != resize_inputs.end()) {
+#if IS_TRT_VERSION_GE(8200)
+        if (desc.Input("SizeTensor").size() == 2) {
+          return true;
+        }
+#else
         if (!desc.Input("SizeTensor").empty()) {
           VLOG(3)
               << "The Paddle-TRT doesn't support the SizeTensor for op_type "
               << op_type;
           return false;
         }
+#endif
       }
       if (resize_inputs.find("OutSize") != resize_inputs.end()) {
         if (!with_dynamic_shape) {
@@ -2377,7 +2383,7 @@ struct SimpleOpTypeSetTeller : public Teller {
 
     // conv3d_transpose
     if (op_type == "conv3d_transpose") {
-      // trt doen't support output_padding when < 8406
+      // trt doesn't support output_padding when < 8406
       // output_padding is usually set when stride > 1
 #if !IS_TRT_VERSION_GE(8400)
       if (desc.HasAttr("output_padding")) {
@@ -3461,9 +3467,9 @@ struct CustomGenericPluginTeller : public Teller {
                    "SetTrtInferShapeFn.";
         return false;
       }
-      auto& trt_supports_formate_config =
+      auto& trt_supports_format_config =
           OpMetaInfoHelper::GetTrtSupportsFormatConfig(op_info);
-      if (trt_supports_formate_config.empty()) {
+      if (trt_supports_format_config.empty()) {
         VLOG(3)
             << op_type
             << " has no trt supportsFormatCombination config. Please set by "
@@ -3509,7 +3515,7 @@ bool OpTeller::Tell(const framework::ir::Node* node,
                                with_dynamic_shape,
                                forbid_dynamic_op_enter_into_trt,
                                use_explicit_quantization)) {
-    SetOpConverterType(node->Op(), OpConverterType::GenericPluginCreater);
+    SetOpConverterType(node->Op(), OpConverterType::GenericPluginCreator);
     return true;
   }
   auto& custom_plugin_teller = GetCustomPluginTeller();
@@ -3518,7 +3524,9 @@ bool OpTeller::Tell(const framework::ir::Node* node,
                               with_dynamic_shape,
                               forbid_dynamic_op_enter_into_trt,
                               use_explicit_quantization)) {
-    SetOpConverterType(node->Op(), OpConverterType::CustomPluginCreater);
+    SetOpConverterType(
+        node->Op(),
+        OpConverterType::CustomPluginCreater);  // typos: disable-line
     return true;
   }
   auto& custom_generic_plugin_teller = GetCustomGenericPluginTeller();
@@ -3527,7 +3535,7 @@ bool OpTeller::Tell(const framework::ir::Node* node,
                                       with_dynamic_shape,
                                       forbid_dynamic_op_enter_into_trt,
                                       use_explicit_quantization)) {
-    SetOpConverterType(node->Op(), OpConverterType::CustomGenericPluginCreater);
+    SetOpConverterType(node->Op(), OpConverterType::CustomGenericPluginCreator);
     return true;
   }
   return false;

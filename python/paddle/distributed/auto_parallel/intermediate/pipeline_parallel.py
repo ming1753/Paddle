@@ -28,6 +28,33 @@ logger = get_logger("INFO", __name__)
 
 
 class SplitPoint(Enum):
+    """
+    Marking the position of the split.
+    BEGINNING: will split the model before the specified layer.
+    END: will split the model after the specified layer.
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> pp_config = {
+            ...     'fc1': dist.SplitPoint.END
+            ... }
+    """
+
     BEGINNING = 0
     END = 1
 
@@ -274,13 +301,13 @@ def pipeline_parallel(model, optimizer=None, config=None):
             raise NotImplementedError(
                 "global_spec should be None if split_spec is a dict"
             )
-
-    if isinstance(global_spec, str):
-        global_spec = [global_spec]
-    else:
-        assert isinstance(
-            global_spec, (list, tuple)
-        ), f"global_spec can only be list or list(str), but got:{type(global_spec)}"
+    if global_spec:
+        if isinstance(global_spec, str):
+            global_spec = [global_spec]
+        else:
+            assert isinstance(
+                global_spec, (list, tuple)
+            ), f"global_spec can only be list or list(str), but got:{type(global_spec)}"
 
     logger.info(
         f"split_spec_dict: {split_spec_dict}, global_spec: {global_spec}"

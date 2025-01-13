@@ -102,7 +102,7 @@ class PD_INFER_DECL PaddlePassBuilder {
   std::vector<std::string> AnalysisPasses() const {
     auto passes = analysis_passes_;
     // To make sure the ir_graph_to_program should be the last pass so any
-    // modication of IR will persist to the program.
+    // modification of IR will persist to the program.
     passes.push_back("ir_graph_to_program_pass");
     return passes;
   }
@@ -323,6 +323,10 @@ class PD_INFER_DECL IpuPassStrategy final : public PassStrategy {
     deleted_passes_ = other.deleted_passes_;
   }
 };
+#ifdef PADDLE_WITH_OPENVINO
+/// \brief List of OpenVINO subgraph passes.
+PD_INFER_DECL extern const std::vector<std::string> kOVSubgraphPasses;
+#endif
 
 /// \brief List of tensorRT subgraph passes.
 PD_INFER_DECL extern const std::vector<std::string> kTRTSubgraphPasses;

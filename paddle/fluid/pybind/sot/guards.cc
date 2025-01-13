@@ -20,7 +20,7 @@ limitations under the License. */
 #include <Python.h>
 #include <frameobject.h>
 
-#if !defined(PyObject_CallOneArg) && PY_VERSION_HEX < PY_3_9_0_HEX
+#if !defined(PyObject_CallOneArg) && !PY_3_9_PLUS
 static inline PyObject* PyObject_CallOneArg(PyObject* func, PyObject* arg) {
   return PyObject_CallFunctionObjArgs(func, arg, NULL);
 }
@@ -76,6 +76,14 @@ bool TypeMatchGuard::check(PyObject* value) {
 
 bool IdMatchGuard::check(PyObject* value) { return value == expected_; }
 
+bool FloatCloseGuard::check(PyObject* value) {
+  if (Py_TYPE(value) != &PyFloat_Type) {
+    return false;
+  }
+  double v = reinterpret_cast<PyFloatObject*>(value)->ob_fval;
+  return std::abs(v - expected_) < 1e-13;
+}
+
 bool ValueMatchGuard::check(PyObject* value) {
   return PyObject_Equal(value, expected_value_);
 }
@@ -121,6 +129,10 @@ bool LayerMatchGuard::check(PyObject* value) {
   }
   PyObject* training = PyObject_GetAttrString(value, "training");
   return (training == Py_True) == training_;
+}
+
+bool InstanceCheckGuard::check(PyObject* value) {
+  return PyObject_IsInstance(value, expected_);
 }
 
 #endif

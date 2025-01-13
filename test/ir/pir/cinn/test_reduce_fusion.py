@@ -19,13 +19,11 @@ import numpy
 import utils
 
 os.environ['FLAGS_cinn_new_group_scheduler'] = '1'
-os.environ['FLAGS_group_schedule_tiling_first'] = '1'
 os.environ['FLAGS_prim_all'] = 'true'
 os.environ['FLAGS_prim_enable_dynamic'] = 'true'
 os.environ['FLAGS_print_ir'] = '1'
 os.environ['FLAGS_enable_pir_api'] = '1'
 os.environ['FLAGS_use_cinn'] = '1'
-os.environ['FLAGS_cinn_bucket_compile'] = '1'
 os.environ['FLAGS_cinn_new_cluster_op_method'] = '1'
 
 import paddle
@@ -181,6 +179,40 @@ class TestReduceFusion(unittest.TestCase):
 
         def init():
             x = paddle.rand((64, 128, 96), dtype='float32')
+            return (x,)
+
+        self.check_accuracy_and_kernel_num(init, func, kernel_num=1)
+
+    def test_horizontal_fusion_with_reduce_dim_equals_one(self):
+        def func(x):
+            a = x + 1
+            a = paddle.max(a, axis=[0])
+            b = x * 2
+            b = paddle.max(b, axis=[2])
+            return a, b
+
+        def init():
+            x = paddle.rand((1, 32, 8), dtype='float32')
+            return (x,)
+
+        self.check_accuracy_and_kernel_num(init, func)
+
+    def test_reduce_anchor_fusion(self):
+        #      T
+        #    /   \
+        #   R --> T
+        #       /   \
+        #      R --> T
+        def func(x):
+            x = x + 1
+            a = paddle.max(x, axis=-1, keepdim=True)
+            b = x + a
+            c = paddle.max(b, axis=-1, keepdim=True)
+            d = c + b
+            return d
+
+        def init():
+            x = paddle.rand((1, 32, 4, 8), dtype='float32')
             return (x,)
 
         self.check_accuracy_and_kernel_num(init, func, kernel_num=1)

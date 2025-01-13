@@ -36,34 +36,12 @@ namespace paddle {
 namespace dialect {
 
 const std::unordered_set<std::string> LegacyOpList = {
-    CBroadcast_Op::name(),
-    CBroadcastOp::name(),
     DistributedPushSparseOp::name(),
     SendV2Op::name(),
     RecvV2Op::name(),
-    CAllreduceProd_Op::name(),
     CAllreduceSumOp::name(),
     CAllreduceSum_Op::name(),
-    CAllreduceAvgOp::name(),
-    CAllreduceAvg_Op::name(),
-    CReduceSumOp::name(),
-    CReduceSum_Op::name(),
-    CAllreduceMax_Op::name(),
-    CAllreduceMaxOp::name(),
-    CAllreduceMin_Op::name(),
-    CAllgatherOp::name(),
-    CSoftmaxWithCrossEntropyOp::name(),
-    CSoftmaxWithCrossEntropyGradOp::name(),
-    CSplitOp::name(),
     PushDenseOp::name(),
-    SoftReluOp::name(),
-    SoftReluGradOp::name(),
-    CReduceAvgOp::name(),
-    CReduceAvg_Op::name(),
-    CReduceMaxOp::name(),
-    CReduceMinOp::name(),
-    CReduceProdOp::name(),
-    CScatterOp::name(),
     PullBoxSparseOp::name(),
     PushBoxSparseOp::name(),
     PushSparseV2Op::name(),
@@ -87,6 +65,8 @@ enum class AttrType {
   PLACE,
 
   STRING,
+
+  TENSOR_NAME,
 
   NUM_ATTR_TYPES,
 };
@@ -112,6 +92,8 @@ static inline AttrType GetAttributeType(const pir::Attribute& attr) {
     return AttrType::DATA_TYPE;
   } else if (attr.isa<paddle::dialect::PlaceAttribute>()) {
     return AttrType::PLACE;
+  } else if (attr.isa<pir::TensorNameAttribute>()) {
+    return AttrType::TENSOR_NAME;
   } else {
     PADDLE_THROW(common::errors::Unimplemented(
         "Unsupported ir Attribute type when casting it into "
@@ -162,6 +144,10 @@ static std::function<T(const pir::Attribute& attr)> GetAttrCast(
           {AttrType::PLACE,
            [](const pir::Attribute& attr) {
              return T{attr.dyn_cast<paddle::dialect::PlaceAttribute>().data()};
+           }},
+          {AttrType::TENSOR_NAME,
+           [](const pir::Attribute& attr) {
+             return T{attr.dyn_cast<pir::TensorNameAttribute>().data()};
            }},
           {AttrType::ARRAY,
            [](const pir::Attribute& attr) {
@@ -518,7 +504,7 @@ const std::unordered_map<std::string, phi::DataType>& StringToDataTypeMap() {
       {"complex64", phi::DataType::COMPLEX64},
       {"complex128", phi::DataType::COMPLEX128},
       {"Undefined", phi::DataType::UNDEFINED},
-      {"psting", phi::DataType::PSTRING},
+      {"pstring", phi::DataType::PSTRING},
       {"float16", phi::DataType::FLOAT16},
       {"bfloat16", phi::DataType::BFLOAT16},
       {"float64", phi::DataType::FLOAT64}};
@@ -593,6 +579,66 @@ std::vector<std::vector<bool>> ConstructStopGradient(pir::Operation* op) {
     PushStopGradient(op->result(i), &stop_gradients[i]);
   }
   return stop_gradients;
+}
+
+bool CanGroupOpRunCpuKernel(const std::vector<::pir::Value>& vec_inputs,
+                            const std::vector<::pir::Value>& vec_output) {
+  for (size_t i = 0; i < vec_inputs.size(); ++i) {
+    auto tmp_in = vec_inputs[i];
+    if (!tmp_in || !tmp_in.type()) {
+      continue;
+    }
+
+    phi::DDim in_dims;
+
+    if (auto type_info =
+            tmp_in.type()
+                .dyn_cast<paddle::dialect::AllocatedDenseTensorType>()) {
+      auto type = tmp_in.type().dyn_cast<AllocatedDenseTensorType>();
+      in_dims = type.dims();
+      if (type.place().GetType() != phi::AllocationType::CPU) {
+        return false;
+      }
+    } else if (auto type_info =
+                   tmp_in.type().dyn_cast<paddle::dialect::DenseTensorType>()) {
+      in_dims = type_info.dims();
+    }
+
+    // 1. dynamic shape not need lower x86
+    if (::common::contain_unknown_dim(in_dims)) {
+      return false;
+    }
+    // 2. size < 4 not need lower x86
+    if (phi::product(in_dims) > 4) {
+      return false;
+    }
+  }
+
+  for (size_t i = 0; i < vec_output.size(); ++i) {
+    const auto& out = vec_output[i];
+
+    if (!out || !out.type()) {
+      continue;
+    }
+
+    if (out.type().isa<DenseTensorType>()) {
+      auto type = out.type().dyn_cast<DenseTensorType>();
+
+      if (type.dtype().isa<::pir::BFloat16Type>()) {
+        return false;
+      }
+
+      if (::common::contain_unknown_dim(type.dims())) {
+        return false;
+      }
+
+      if (phi::product(type.dims()) > 4) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 }  // namespace dialect

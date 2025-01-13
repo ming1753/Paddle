@@ -592,6 +592,27 @@ std::vector<pir::Type> AddNArrayOp::InferMeta(
   return argument_outputs;
 }
 
+bool AddNArrayOp::InferSymbolicShape(
+    pir::InferSymbolicShapeContext *infer_context) {
+  // The inputs for add_n_array op is defined by builtin.combine.
+  // We use the combine op's inputs to infer the output shape.
+  pir::CombineOp combine_op =
+      inputs().defining_op()->dyn_cast<pir::CombineOp>();
+  // Try to get the infer result as much as possible.
+  for (size_t i = 0; i < combine_op.num_operands(); i++) {
+    if (infer_context->HasShapeOrDataForValue(combine_op.operand_source(i))) {
+      auto out_shape_or_data =
+          infer_context->GetShapeOrDataForValue(combine_op.operand_source(i))
+              .dyn_cast<symbol::RankedTensorArrayShapeOrDataDimExprs>();
+      infer_context->SetShapeOrDataForValue(
+          out(), symbol::ShapeOrDataDimExprs{out_shape_or_data});
+      return true;
+    }
+  }
+  PADDLE_THROW(common::errors::InvalidArgument(
+      "At least one operand of CombineOp should have shape or data."));
+}
+
 const char *FusedGemmEpilogueOp::attributes_name[3] = {  // NOLINT
     "trans_x",
     "trans_y",
@@ -1495,6 +1516,7 @@ std::vector<pir::Type> CreateArrayOp::InferMeta(
 
 bool CreateArrayOp::InferSymbolicShape(
     pir::InferSymbolicShapeContext *infer_context) {
+  // TODO(ooooo): Try to use output type's dims to decide.
   infer_context->SetShapeOrDataForValue(
       out(),
       symbol::ShapeOrDataDimExprs{symbol::RankedTensorArrayShapeOrDataDimExprs(
@@ -2165,6 +2187,12 @@ bool ArrayWrite_Op::InferSymbolicShape(
   const auto &x_shape = infer_context->GetShapeOrDataForValue(x()).shape();
   infer_context->SetShapeOrDataForValue(
       out(),
+      symbol::ShapeOrDataDimExprs{
+          symbol::RankedTensorArrayShapeOrDataDimExprs(x_shape)});
+  // update array's shape as x's shape.
+  // TOOD(ooooo) Do not change if shape is set by custom, similar to infer_meta
+  infer_context->SetShapeOrDataForValue(
+      array(),
       symbol::ShapeOrDataDimExprs{
           symbol::RankedTensorArrayShapeOrDataDimExprs(x_shape)});
 

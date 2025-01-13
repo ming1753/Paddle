@@ -203,7 +203,7 @@ OP_SAME_OPERANDS_AND_RESULT(Gammaln_)
 OP_SAME_OPERANDS_AND_RESULT(GaussianInplace)
 OP_SAME_OPERANDS_AND_RESULT(GaussianInplace_)
 OP_SAME_OPERANDS_AND_RESULT(Hardshrink)
-OP_SAME_OPERANDS_AND_RESULT(HardSigmoid)
+OP_SAME_OPERANDS_AND_RESULT(Hardsigmoid)
 OP_SAME_OPERANDS_AND_RESULT(MergeSelectedRows)
 OP_SAME_OPERANDS_AND_RESULT(NpuIdentity)
 OP_SAME_OPERANDS_AND_RESULT(Renorm)
@@ -253,13 +253,13 @@ bool ScaleOpInferSymbolicShape(pir::Operation *op,
     return GetOptionalAttributeData("scale");
   };
 
-  if (operand_shape_or_data.data().has_value()) {
+  if (operand_shape_or_data.data()) {
     const std::optional<symbol::DimExpr> &opt_scale = GetOptionalScaleData();
     const std::optional<symbol::DimExpr> &opt_bias =
         GetOptionalAttributeData("bias");
     if (opt_scale && opt_bias) {
       std::vector<symbol::DimExpr> data;
-      for (auto &val : operand_shape_or_data.data().value()) {
+      for (auto &val : *(operand_shape_or_data.data())) {
         data.push_back(val * (opt_scale.value()) + (opt_bias.value()));
       }
       SetOutputWithShapeAndData(data);

@@ -11,17 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
+
 import logging
 import re
+from typing import TYPE_CHECKING
 
 import paddle
 import paddle.distributed as dist
 
 from .parallel_base import ParallelModel, ParallelOptimizer, is_tensor
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from paddle import Tensor
+    from paddle.distributed import ProcessMesh
+    from paddle.nn import Layer
+
 
 def c_split(x, process_mesh, need_transpose):
-    index = process_mesh.dim_names.index('mp')  # get the axis for the split
+    mp_index = process_mesh.dim_names.index('mp')  # get the axis for the split
+    dp_index = process_mesh.dim_names.index('dp')
     if isinstance(x, tuple):
         target_x = x[0]
     else:
@@ -33,7 +44,18 @@ def c_split(x, process_mesh, need_transpose):
     placements = target_x.placements
     if placements is None:
         placements = [dist.Replicate() for _ in range(len(process_mesh.shape))]
-    placements[index] = dist.Shard(0)
+    if placements[dp_index] == dist.Shard(0):
+        # NOTE(zhangwl):if shard(0) , input shape should be [b,s,h]
+        split_dims = dist.Shard(1)
+    elif placements[dp_index] == dist.Shard(1):
+        # NOTE(zhangwl):if shard(1) , input shape should be [s,b,h]
+        split_dims = dist.Shard(0)
+    else:
+        logging.warning(
+            f"parallel api don't know {target_x.shape} which dimension is batch, default is to cut to the 0th dimension"
+        )
+        split_dims = dist.Shard(0)
+    placements[mp_index] = split_dims
     target_x = dist.reshard(target_x, process_mesh, placements)
     if isinstance(x, tuple):
         x = list(x)
@@ -72,25 +94,53 @@ def c_concat(x, process_mesh, need_transpose):
 
 class PlanBase:
     def __init__(self):
-        pass
+        self.share_param_list = {}
 
-    def apply(self, layer, process_mesh, shard_weight, shard_bias):
+    def apply(self, layer, process_mesh, shard_param_list):
         raise NotImplementedError("Don't call the PlanBase directly.")
 
 
 class ColWiseParallel(PlanBase):
     """
-    Col wise parallel plan.
+    Col wise parallel plan for mp config.
     Will try to split weight on the second dim and the bias on the first dim.
     This api is designed for paddle.nn.Linear or paddle.nn.Embedding.
     If any other instance of paddle.nn.Layer is passed,
     this plan will try to split `layer.weight` and `layer.bias` if it has.
 
-    Note: `layer.weight` should have two dims.
-    Note: `layer.bias` should have one dim.
+    Note:
+        1. `layer.weight` should have two dims.
+        2. `layer.bias` should have one dim.
+
+    Args:
+        gather_output (bool): Whether gather the output to change it from a local tensor to a global tensor.
+            If gather the local tensor to global, an extra communication will be called.
+            The default value is `False`, which means keeping the output as a local tensor.
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> mp_config = {
+            ...     'fc1': dist.ColWiseParallel()
+            ... }
+
     """
 
-    def __init__(self, gather_output=False):
+    def __init__(self, gather_output: bool = False) -> None:
         super().__init__()
         self.gather_output = gather_output
 
@@ -101,18 +151,11 @@ class ColWiseParallel(PlanBase):
 
         return gather_hook
 
-    def apply(self, layer, process_mesh, shard_weight=True, shard_bias=True):
-        """
-        With calling of this function, parameters will be marked as split and turn in to shard_tensor.
-        :param layer: paddle.nn.Layer, layer to be split
-        :param process_mesh: dist.ProcessMesh, process_mesh where the split will work on
-        :param shard_weight: BOOL, whether shard the weight or not
-        :param shard_bias: BOOL, whether shard the weight or not
-        :return: no return, the shard will happen on the origin layer
-        """
+    def apply(self, layer, process_mesh, shard_param_list):
         index = process_mesh.dim_names.index('mp')  # get the axis for the split
         size = len(process_mesh.shape)
         placement = [dist.Replicate() for _ in range(size)]
+        param_placements = {}
         assert isinstance(layer, paddle.nn.Layer)
         if not isinstance(layer, (paddle.nn.Linear, paddle.nn.Embedding)):
             logging.warning(
@@ -120,62 +163,104 @@ class ColWiseParallel(PlanBase):
                 f"But got {layer.__class__.__name__}. "
                 f"Will try to shard weight and bias if the layer contains one."
             )
-        if (
-            hasattr(layer, "weight")
-            and layer.weight is not None
-            and shard_weight
-        ):
-            placement[index] = dist.Shard(1)
-            assert len(layer.weight.shape) == 2
-            layer.weight = dist.shard_tensor(
-                layer.weight,
-                process_mesh,
-                placement,
-            )
-        if hasattr(layer, "bias") and layer.bias is not None and shard_bias:
-            placement[index] = dist.Shard(0)
-            assert len(layer.bias.shape) == 1
-            layer.bias = dist.shard_tensor(layer.bias, process_mesh, placement)
+        shard_param_list = set(shard_param_list)
+        if len(shard_param_list) == 0:
+            shard_param_list.add("weight")
+            shard_param_list.add("bias")
 
+        def shard_param(param_name):
+            if (
+                hasattr(layer, param_name)
+                and getattr(layer, param_name) is not None
+            ):
+                layer_param = getattr(layer, param_name)
+
+                if layer_param.is_dist():
+                    return
+
+                if len(layer_param.shape) == 2:
+                    placement[index] = dist.Shard(1)
+                elif len(layer_param.shape) == 1:
+                    placement[index] = dist.Shard(0)
+                else:
+                    raise ValueError(f"{layer_param} should have 1 or 2 dims.")
+                # NOTE(zhangweilong):for share parameter, the parameter should be handled uniformly in the end
+                if (
+                    self.share_param_list is not None
+                    and layer_param.name in self.share_param_list
+                    and self.share_param_list[layer_param.name] > 1
+                ):
+                    param_placements.update({param_name: placement})
+                else:
+                    layer_param = dist.shard_tensor(
+                        layer_param,
+                        process_mesh,
+                        placement,
+                    )
+                    setattr(layer, param_name, layer_param)
+
+        for param_name in shard_param_list:
+            shard_param(param_name)
         if self.gather_output:
             layer.register_forward_post_hook(
                 self.gather_output_hook(process_mesh)
             )
+        return param_placements
 
 
 class RowWiseParallel(PlanBase):
     """
-    Row wise parallel plan.
+    Row wise parallel plan for mp config.
     Will try to split weight on the first dim.
     This api is designed for paddle.nn.Linear or paddle.nn.Embedding.
     If any other instance of paddle.nn.Layer is passed, this plan will try to split `layer.weight` if it has.
 
-    Note: `layer.weight` should have two dims.
+    Note:
+        `layer.weight` should have two dims.
+
+    Args:
+        is_input_parallel (bool): Whether the input is a local tensor or a global tensor. If the input is a
+            global tensor, an extra split will be called. The default value is `True`,
+            which means the input is a local tensor.
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> mp_config = {
+            ...     'fc1': dist.RowWiseParallel()
+            ... }
     """
 
-    def __init__(self, is_input_parallel=True):
+    def __init__(self, is_input_parallel: bool = True) -> None:
         super().__init__()
         self.is_input_parallel = is_input_parallel
 
     def split_input_hook(self, process_mesh):
-        def split_hook(layer, input, output):
+        def split_hook(layer, input):
             return c_split(input, process_mesh, False)
 
         return split_hook
 
-    def apply(self, layer, process_mesh, shard_weight=True, shard_bias=False):
-        """
-        With calling of this function, parameters will be marked as split and turn in to shard_tensor.
-        :param layer: paddle.nn.Layer, layer to be split
-        :param process_mesh: dist.ProcessMesh, process_mesh where the split will work on
-        :param shard_weight: BOOL, whether shard the weight or not
-        :param shard_bias: BOOL, whether shard the weight or not
-        :return: no return, the shard will happen on the origin layer
-        """
+    def apply(self, layer, process_mesh, shard_param_list):
         index = process_mesh.dim_names.index('mp')  # get the axis for the split
         size = len(process_mesh.shape)
         placement = [dist.Replicate() for _ in range(size)]
         placement[index] = dist.Shard(0)
+        param_placements = {}
         assert isinstance(layer, paddle.nn.Layer)
         if not isinstance(layer, (paddle.nn.Linear, paddle.nn.Embedding)):
             logging.warning(
@@ -183,61 +268,189 @@ class RowWiseParallel(PlanBase):
                 f"But got {layer.__class__.__name__}. "
                 f"Will try to shard weight if the layer contains one."
             )
-        if (
-            hasattr(layer, "weight")
-            and layer.weight is not None
-            and shard_weight
-        ):
-            assert len(layer.weight.shape) == 2
-            layer.weight = dist.shard_tensor(
-                layer.weight,
-                process_mesh,
-                placement,
-            )
+        shard_param_list = set(shard_param_list)
+        shard_param_list.discard("bias")
+        if len(shard_param_list) == 0:
+            shard_param_list.add("weight")
+
+        def shard_param(param_name):
+            if (
+                hasattr(layer, param_name)
+                and getattr(layer, param_name) is not None
+            ):
+                layer_param = getattr(layer, param_name)
+                if layer_param.is_dist():
+                    return
+                if len(layer_param.shape) != 2:
+                    raise ValueError(f"{layer_param} should have 2 dims.")
+                # NOTE(zhangweilong):for share parameter, the parameter should be handled uniformly in the end
+                if (
+                    self.share_param_list is not None
+                    and layer_param.name in self.share_param_list
+                    and self.share_param_list[layer_param.name] > 1
+                ):
+                    param_placements.update({param_name: placement})
+                else:
+                    layer_param = dist.shard_tensor(
+                        layer_param,
+                        process_mesh,
+                        placement,
+                    )
+                    setattr(layer, param_name, layer_param)
+
+        for param_name in shard_param_list:
+            shard_param(param_name)
         if not self.is_input_parallel:
             layer.register_forward_pre_hook(self.split_input_hook(process_mesh))
+        return param_placements
 
 
 class PrepareLayerInput(PlanBase):
     """
     Prepare the input of specific layer. User should provide one callable function.
-    The function should take exactly one parameter named `process_mesh` and return the pre hook.
+
+    Args:
+        fn (callable): A function that prepare the layer input. The function should take exactly
+            one parameter named `process_mesh` and return the pre hook.
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> def layer_input_hook(process_mesh):
+            ...     def hook(layer, input, output):
+            ...         return input
+            ...     return hook
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> mp_config = {
+            ...     'fc1': dist.PrepareLayerOutput(layer_input_hook)
+            ... }
     """
 
-    def __init__(self, fn=None):
+    def __init__(
+        self,
+        fn: (
+            Callable[
+                [ProcessMesh],
+                Callable[
+                    [Layer, tuple[Tensor], tuple[Tensor]], [tuple[Tensor]]
+                ],
+            ]
+            | None
+        ) = None,
+    ) -> None:
         super().__init__()
         assert callable(fn)
         self.fn = fn
 
-    def apply(self, layer, process_mesh, shard_weight=None, shard_bias=None):
+    def apply(self, layer, process_mesh, shard_param_list):
         layer.register_forward_pre_hook(self.fn(process_mesh=process_mesh))
 
 
 class PrepareLayerOutput(PlanBase):
     """
     Prepare the output of specific layer. User should provide one callable function.
-    The function should take exactly one parameter named `process_mesh` and return the post hook.
+
+    Args:
+        fn (callable): A function that prepare the layer input. The function should take exactly
+            one parameter named `process_mesh` and return the post hook.
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> def layer_output_hook(process_mesh):
+            ...     def hook(layer, input, output):
+            ...         return output
+            ...     return hook
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> mp_config = {
+            ...     'fc1': dist.PrepareLayerOutput(layer_output_hook)
+            ... }
     """
 
-    def __init__(self, fn=None):
+    def __init__(
+        self,
+        fn: (
+            Callable[
+                [ProcessMesh],
+                Callable[
+                    [Layer, tuple[Tensor], tuple[Tensor]], [tuple[Tensor]]
+                ],
+            ]
+            | None
+        ) = None,
+    ) -> None:
         super().__init__()
         assert callable(fn)
         self.fn = fn
 
-    def apply(self, layer, process_mesh, shard_weight=None, shard_bias=None):
+    def apply(self, layer, process_mesh, shard_param_list):
         layer.register_forward_post_hook(self.fn(process_mesh=process_mesh))
 
 
 class SequenceParallelBegin(PlanBase):
     """
-    With need_transpose=True, this plan will transpose and reshard the output from [b, s, h] to [s/mp, b, h].
-    With need_transpose=False, this plan will reshard the output from [s, b, h] to [s/mp, b, h].
-
+    Sequence parallel plan for mp config.
     This plan marks the beginning of the sp and should be added to the LAST layer before the sp range.
-    DON'T mark any layer in the sp range.
+
+    Note:
+        DON'T mark any layer in the sp range.
+
+    Args:
+        need_transpose (bool): the default value is `True`. With `need_transpose=True`, this plan will transfer
+            the output from [b, s, h] to [s/mp, b, h].  With `need_transpose=False`, this plan will transfer
+            the output from [s, b, h] to [s/mp, b, h].
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> mp_config = {
+            ...     'fc1': dist.SequenceParallelBegin()
+            ... }
     """
 
-    def __init__(self, need_transpose=True):
+    def __init__(self, need_transpose: bool = True) -> None:
         super().__init__()
         self.need_transpose = need_transpose
 
@@ -248,7 +461,7 @@ class SequenceParallelBegin(PlanBase):
 
         return begin
 
-    def apply(self, layer, process_mesh, shard_weight=None, shard_bias=None):
+    def apply(self, layer, process_mesh, shard_param_list):
         layer.register_forward_post_hook(
             self.sequence_parallel_begin(process_mesh)
         )
@@ -256,14 +469,40 @@ class SequenceParallelBegin(PlanBase):
 
 class SequenceParallelEnd(PlanBase):
     """
-    With need_transpose=True, this plan will reshard and transpose the input from [s/mp, b, h] to [b, s, h].
-    With need_transpose=False, this plan will reshard the input from [s/mp, b, h] to [s, b, h].
-
+    Sequence parallel plan for mp config.
     This plan marks the ending of the sp and should be added to the FIRST layer after the sp range.
-    DON'T mark any layer in the sp range.
+
+    Note:
+        DON'T mark any layer in the sp range.
+
+    Args:
+        need_transpose (bool): the default value is `True`. With `need_transpose=True`, this plan will transfer
+            the input from [s/mp, b, h] to [b, s, h]. With `need_transpose=False`, this plan will transfer the
+            input from [s/mp, b, h] to [s, b, h].
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> mp_config = {
+            ...     'fc1': dist.SequenceParallelEnd()
+            ... }
     """
 
-    def __init__(self, need_transpose=True):
+    def __init__(self, need_transpose: bool = True) -> None:
         super().__init__()
         self.need_transpose = need_transpose
 
@@ -274,7 +513,7 @@ class SequenceParallelEnd(PlanBase):
 
         return end
 
-    def apply(self, layer, process_mesh, shard_weight=None, shard_bias=None):
+    def apply(self, layer, process_mesh, shard_param_list):
         layer.register_forward_pre_hook(
             self.sequence_parallel_end(process_mesh)
         )
@@ -282,10 +521,32 @@ class SequenceParallelEnd(PlanBase):
 
 class SequenceParallelEnable(PlanBase):
     """
+    Sequence parallel plan for mp config.
     Do sequence parallel on the layer. Note the input should be in [b, s, h] format.
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> mp_config = {
+            ...     'fc1': dist.SequenceParallelEnable()
+            ... }
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
     def sequence_parallel_begin(self, process_mesh):
@@ -302,7 +563,7 @@ class SequenceParallelEnable(PlanBase):
 
         return end
 
-    def apply(self, layer, process_mesh, shard_weight=None, shard_bias=None):
+    def apply(self, layer, process_mesh, shard_param_list):
         logging.warning(
             "Sequence parallel with the usage of SequenceParallel may not reach the best throughput. "
             "Try to use SequenceParallelBegin/End to achieve better performance"
@@ -317,16 +578,38 @@ class SequenceParallelEnable(PlanBase):
 
 class SequenceParallelDisable(PlanBase):
     """
+    Sequence parallel plan for mp config.
     Disable sequence parallel on the layer.
-    If the need_transpose is true:
-        - change the input from  [s/mp, b, h] to [b, s, h]
-        - change the output from [b, s, h] to [s/mp, b, h]
-    If the need_transpose is False:
-        - change the input from  [s/mp, b, h] to [s, b, h]
-        - change the output from [s, b, h] to [s/mp, b, h]
+
+    Args:
+        need_transpose (bool): the default value is `True`. If the need_transpose is `True`: this plan will transfer
+            the input from  [s/mp, b, h] to [b, s, h] and then transfer the output from [b, s, h] to [s/mp, b, h].
+            If the need_transpose is `False`: this plan will transfer the input from  [s/mp, b, h] to [s, b, h] and
+            then transfer the output from [s, b, h] to [s/mp, b, h].
+
+    Examples:
+        .. code-block:: python
+
+            >>> import paddle
+            >>> import paddle.distributed as dist
+
+            >>> class MLP(paddle.nn.Layer):
+            ...     def __init__(self):
+            ...         super().__init__()
+            ...         self.fc1 = paddle.nn.Linear(8, 8)
+            ...         self.fc2 = paddle.nn.Linear(8, 8)
+            ...
+            ...     def forward(self, input):
+            ...         return self.fc2(self.fc1(input))
+
+            >>> # doctest: +REQUIRES(env:DISTRIBUTED)
+            >>> layer = MLP()
+            >>> mp_config = {
+            ...     'fc1': dist.SequenceParallelDisable()
+            ... }
     """
 
-    def __init__(self, need_transpose=True):
+    def __init__(self, need_transpose: bool = True) -> None:
         super().__init__()
         self.need_transpose = need_transpose
 
@@ -342,7 +625,7 @@ class SequenceParallelDisable(PlanBase):
 
         return end
 
-    def apply(self, layer, process_mesh, shard_weight=None, shard_bias=None):
+    def apply(self, layer, process_mesh, shard_param_list):
         layer.register_forward_pre_hook(
             self.sequence_parallel_end(process_mesh)
         )
@@ -372,22 +655,23 @@ class TensorParallel(ParallelModel):
             self.parallelize_plan = parallelize_plan
             self.tp_parallelizer = self.tensor_parallelizer_fn
 
-    def match_layer(self, name):
+    def match_layer(self, layer, name):
         # Match the layer to a plan.
         # Will return the plan if the layer hits one, otherwise return None.
         plans = []
         for key, plan in self.parallelize_plan.items():
-            shard_weight = True
-            shard_bias = True
+            attr_name = key.split('.')[-1]
+            shard_param_list = []
             # Find some plan for specific parameter, such as
             # "lm_head.weight": ColWiseParallel()
-            # Only support weight or bias.
-            if key.endswith(".weight"):
-                key = key.replace(".weight", "")
-                shard_bias = False
-            elif key.endswith(".bias"):
-                key = key.replace(".bias", "")
-                shard_weight = False
+            # "qkv_porj.lora_A" ColWiseParallel()
+            # if there is no plan for specific parameter, layer will be sharded by default: layer.weight and layer.bias
+            if key.endswith(f".{attr_name}"):
+                if hasattr(layer, attr_name) and is_tensor(
+                    getattr(layer, attr_name)
+                ):
+                    key = key.replace(f".{attr_name}", "")
+                    shard_param_list.append(attr_name)
             re_find = re.match(key, name)
             if key == name or (
                 re_find is not None
@@ -395,26 +679,38 @@ class TensorParallel(ParallelModel):
             ):
                 if isinstance(plan, PlanBase):
                     plan = [plan]
-                plans.append([plan, shard_weight, shard_bias])
+                plans.append([plan, shard_param_list])
         return plans
 
     def tensor_parallelizer_fn(self, model):
         if self.parallelize_plan is None:
             return
+        layer_param_placements = {}
+        share_param_list = {}
         for name, layer in model.named_sublayers():
-            plans = self.match_layer(name)
+            for param_name in list(layer._parameters.keys()):
+                param = getattr(layer, param_name)
+                if param.name not in share_param_list:
+                    share_param_list[param.name] = 1
+                    continue
+                share_param_list[param.name] += 1
+        for name, layer in model.named_sublayers():
+            plans = self.match_layer(layer, name)
+            layer_param_placements[layer] = {}
             if len(plans) > 0:
                 pp_idx = getattr(layer, "pipeline_stage_index", 0)
                 for plan in plans:
-                    real_plan, shard_weight, shard_bias = plan
+                    real_plan, shard_param_list = plan
                     for p in real_plan:
-                        p.apply(
-                            layer,
-                            self.get_mesh(pp_idx),
-                            shard_weight,
-                            shard_bias,
+                        p.share_param_list = share_param_list
+                        param_placements = p.apply(
+                            layer, self.get_mesh(pp_idx), shard_param_list
                         )
-        return model
+                        if param_placements is not None and param_placements:
+                            layer_param_placements[layer].update(
+                                param_placements
+                            )
+        return model, layer_param_placements
 
 
 def tensor_parallel(model, optimizer=None, config=None):

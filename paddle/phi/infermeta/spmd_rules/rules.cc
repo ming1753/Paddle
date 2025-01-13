@@ -31,8 +31,7 @@ limitations under the License. */
  * directly in the header file
  */
 
-namespace phi {
-namespace distributed {
+namespace phi::distributed {
 
 // matmul rule
 PD_REGISTER_SPMD_RULE(matmul,
@@ -647,6 +646,11 @@ PD_REGISTER_SPMD_RULE(
     c_softmax_with_cross_entropy,
     PD_INFER_SPMD(phi::distributed::CSoftmaxWithCrossEntropyInferSpmd));
 
+PD_REGISTER_SPMD_RULE(
+    c_softmax_with_multi_label_cross_entropy,
+    PD_INFER_SPMD(
+        phi::distributed::CSoftmaxWithMultiLabelCrossEntropyInferSpmd));
+
 // fused_linear_param_grad_add got no reverse infer spmd rule
 PD_REGISTER_SPMD_RULE(
     fused_linear_param_grad_add,
@@ -729,5 +733,4 @@ PD_REGISTER_SPMD_RULE(nonzero,
 
 // add_n
 PD_REGISTER_SPMD_RULE(add_n, PD_INFER_SPMD(phi::distributed::AddNInferSpmd));
-}  // namespace distributed
-}  // namespace phi
+}  // namespace phi::distributed

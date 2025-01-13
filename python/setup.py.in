@@ -1011,6 +1011,16 @@ if '${WITH_ONNXRUNTIME}' == 'ON':
     else:
         package_data['paddle.libs']+=['${PADDLE2ONNX_LIB_NAME}', '${ONNXRUNTIME_LIB_NAME}']
 
+if '${WITH_OPENVINO}' == 'ON':
+    shutil.copy('${OPENVINO_LIB}', libs_path)
+    shutil.copy('${TBB_LIB}', libs_path)
+    shutil.copy('${OPENVINO_PADDLE_LIB}', libs_path)
+    shutil.copy('${OPENVINO_CPU_PLUGIN_LIB}', libs_path)
+    if os.name != 'nt':
+        package_data['paddle.libs'] += ['libopenvino.so.2500', 'libtbb.so.12', 'libopenvino_paddle_frontend.so.2500', 'libopenvino_intel_cpu_plugin.so']
+    else:
+        package_data['paddle.libs'] += ['openvino.dll', 'tbb.dll', 'openvino_paddle_frontend.dll', 'openvino_intel_cpu_plugin.dll']
+
 if '${WITH_XPU}' == 'ON':
     shutil.copy('${XPU_API_LIB}', libs_path)
     package_data['paddle.libs']+=['${XPU_API_LIB_NAME}']
@@ -1141,6 +1151,7 @@ headers = (
     list(find_files('*.h', '@PADDLE_SOURCE_DIR@/paddle/fluid/pir/drr/include')) +  # drr init headers
     list(find_files('*.h','@PADDLE_SOURCE_DIR@/paddle/fluid/pir/dialect/operator/interface/infer_symbolic_shape'))+
     list(find_files('*.h', '@PADDLE_SOURCE_DIR@/paddle/fluid/pir/dialect/operator/ir')) +  # operator init headers
+    list(find_files('sub_graph_detector.h', '@PADDLE_SOURCE_DIR@/paddle/fluid/pir/transforms/')) +
     list(find_files('general_functions.h', '@PADDLE_SOURCE_DIR@/paddle/fluid/pir/utils'))+
     list(find_files('interface.h', '@PADDLE_SOURCE_DIR@/paddle/fluid/pir/serialize_deserialize/include'))+
     list(find_files('dense_tensor.inl','@PADDLE_SOURCE_DIR@/paddle/phi/core'))+
@@ -1154,14 +1165,26 @@ headers = (
     list(find_files('infer_symbolic_shape.h','@PADDLE_SOURCE_DIR@/paddle/fluid/pir/dialect/operator/interface/infer_symbolic_shape/'))+
     #pir headers
     list(find_files('lexer.h','@PADDLE_SOURCE_DIR@/paddle/pir/src/core/parser/'))+
-    list(find_files('token.h','@PADDLE_SOURCE_DIR@/paddle/pir/src/core/parser/')))
-
+    list(find_files('token.h','@PADDLE_SOURCE_DIR@/paddle/pir/src/core/parser/'))+
+    #custom_engine
+    list(find_files('custom_engine_ext.h','@PADDLE_SOURCE_DIR@/paddle/fluid/custom_engine/'))+
+    #new_executor headers
+    list(find_files('pir_adaptor_util.h','@PADDLE_SOURCE_DIR@/paddle/fluid/framework/new_executor/pir_adaptor/'))+
+    list(find_files('custom_engine_instruction.h','@PADDLE_SOURCE_DIR@/paddle/fluid/framework/new_executor/instruction/')))
 jit_layer_headers = ['layer.h', 'serializer.h', 'serializer_utils.h', 'all.h', 'function.h']
 for f in jit_layer_headers:
     headers += list(find_files(f, '@PADDLE_SOURCE_DIR@/paddle/fluid/jit', recursive=True))
 
 if '${WITH_ONEDNN}' == 'ON':
     headers += list(find_files('*', '${ONEDNN_INSTALL_DIR}/include')) # mkldnn
+
+if '${WITH_OPENVINO}' == 'ON':
+    headers += list(
+        find_files('*', '${OPENVINO_INC_DIR}')
+    )  # openvino
+    headers += list(
+        find_files('*', '${TBB_INC_DIR}')
+    )  # tbb
 
 if '${WITH_GPU}' == 'ON' or '${WITH_ROCM}' == 'ON':
     # externalErrorMsg.pb for External Error message

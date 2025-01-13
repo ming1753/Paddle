@@ -17,20 +17,22 @@
 #include "paddle/cinn/ir/ir_printer.h"
 #include "paddle/cinn/ir/schedule/ir_schedule_util.h"
 #include "paddle/cinn/ir/utils/ir_copy.h"
+#include "paddle/cinn/ir/utils/stmt_converter.h"
 #include "paddle/cinn/optim/call_arg_list_to_pod_value.h"
 #include "paddle/cinn/optim/cast_bool_to_int8.h"
 #include "paddle/cinn/optim/eliminate_broadcast_in_forloop.h"
 #include "paddle/cinn/optim/eliminate_invariant_loop.h"
-#include "paddle/cinn/optim/extern_call_process.h"
+#include "paddle/cinn/optim/extern_call_process_pass.h"
 #include "paddle/cinn/optim/fold_cinn_call_arguments.h"
-#include "paddle/cinn/optim/if_fusion.h"
+#include "paddle/cinn/optim/if_fold_pass.h"
+#include "paddle/cinn/optim/if_fusion_pass.h"
 #include "paddle/cinn/optim/insert_debug_log_callee.h"
 #include "paddle/cinn/optim/ir_simplify.h"
 #include "paddle/cinn/optim/lower_function_call_bind_vars.h"
 #include "paddle/cinn/optim/lower_intrin.h"
 #include "paddle/cinn/optim/map_extern_call.h"
-#include "paddle/cinn/optim/rearrange_load_instruction.h"
-#include "paddle/cinn/optim/remove_schedule_block.h"
+#include "paddle/cinn/optim/rearrange_load_instruction_pass.h"
+#include "paddle/cinn/optim/remove_schedule_block_pass.h"
 #include "paddle/cinn/optim/replace_const_param_to_integer.h"
 #include "paddle/cinn/optim/replace_cross_block_reduction.h"
 #include "paddle/cinn/optim/replace_cross_thread_reduction.h"
@@ -40,6 +42,7 @@
 #include "paddle/cinn/optim/unroll_loops.h"
 #include "paddle/cinn/optim/vectorize_for_trans.h"
 #include "paddle/cinn/optim/vectorize_loops.h"
+#include "paddle/cinn/pass/pass_manager.h"
 
 namespace cinn {
 namespace optim {
@@ -55,6 +58,7 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
           "Expected expression 'fn' to be defined, but it is undefined."));
 
   auto copied = ir::ir_utils::IRCopy(fn);
+  if (!copied->body.As<ir::Block>()) return copied;
 
   ReplaceConstParamToInteger(&copied->body);
   // Simplify already contains CastSimplify
@@ -66,9 +70,7 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
   ReplaceCrossBlockReduction(copied);
   VLOG(4) << "After Optimize ReplaceCrossBlockReduction:" << copied;
 
-  cinn::common::DefaultDeviceTarget().arch.Match(
-      [&](std::variant<common::UnknownArch, common::X86Arch, common::ARMArch>) {
-      },
+  target.arch.Match(
       [&](common::NVGPUArch) {
 #ifdef CINN_WITH_CUDA
         ir::SetCudaAxisInfo(copied);
@@ -76,7 +78,11 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
           RemoveGpuForLoops(copied);
         }
         CudaSyncThreadsDropIfThenElse(copied);
-    // CudaTransBufferWithDynamicShape(&copied);
+        FuncPassManager func_pass_manager;
+        VLOG(10) << "Before Optimize TransBufferWithDynamicShape:" << copied;
+        func_pass_manager.AddPass(CreateTransBufferWithDynamicShapePass());
+        func_pass_manager.Run(copied);
+        VLOG(10) << "After Optimize TransBufferWithDynamicShape:" << copied;
 #endif
       },
       [&](common::HygonDCUArchHIP) {
@@ -88,7 +94,9 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
         CudaSyncThreadsDropIfThenElse(copied);
     // CudaTransBufferWithDynamicShape(&copied);
 #endif
-      });
+      },
+      [&](common::HygonDCUArchSYCL) { CINN_NOT_IMPLEMENTED },
+      [](auto) {});
 
   SimplifyBlocks(&copied->body);
   VLOG(4) << "After SimplifyBlocks:" << copied;
@@ -96,15 +104,30 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
   MapExternCall(&copied->body, target);
   VLOG(10) << "After Optimize MapExternCall:" << copied;
 
-  ExternCallMultiOutputShallowStore(&copied->body);
-  VLOG(10) << "After Optimize ExternCallMultiOutputShallowStore:" << copied;
+  // ExternCallMultiOutputShallowStore(&copied->body);
+  BlockPassManager pass_manager0;
+  pass_manager0.AddPass(CreateExternCallMultiOutputShallowStorePass());
+  pass_manager0.Run(copied);
+  VLOG(10) << "After Optimize ExternCallMultiOutputShallowStore and "
+              "ExternCallRemoveTupleGetStatements:"
+           << copied;
+
   // Simplify already contains CastSimplify
   Simplify(&copied->body);
-  VLOG(10) << "After Optimize Simplify:" << copied;
+  VLOG(4) << "After Optimize Simplify:" << copied;
 
-  // TODO(liangshuhao): this pass may unexpectedly remove schedule blocks, and
-  // it actually doesn't contribute to performance, so temporarily disabled.
-  // IfFusion(&copied->body);
+  BlockPassManager pass_manager;
+  pass_manager.AddPass(CreateIfFusionPass());
+  pass_manager.Run(copied);
+
+  target.arch.Match(
+      [&](common::NVGPUArch) {
+        FuncPassManager func_pass_manager;
+        func_pass_manager.AddPass(CreateRearrangeLoadInstructionPass());
+        func_pass_manager.Run(copied);
+        VLOG(4) << "After Optimize RearrangeLoadInstruction:" << copied;
+      },
+      [](auto) {});
 
   VectorizeForTrans(&copied->body);
   VLOG(10) << "After Optimize vectorize" << copied;
@@ -112,8 +135,14 @@ ir::LoweredFunc Optimize(ir::LoweredFunc fn,
   Simplify(&copied->body);
   VLOG(10) << "After Optimize Simplify" << copied;
 
-  RemoveScheduleBlock(&copied->body);
+  pass_manager.AddPass(CreateRemoveScheduleBlockPass());
+  pass_manager.Run(copied);
   VLOG(10) << "After RemoveScheduleBlock:" << copied;
+
+  StmtPassManager stmt_pass_manager;
+  stmt_pass_manager.AddPass(CreateIfFoldPass());
+  stmt_pass_manager.Run(copied);
+  VLOG(10) << "After IfFoldPass:" << copied;
 
   LowerIntrin(&copied->body, target);
   VLOG(10) << "After LowerIntrin:" << copied;

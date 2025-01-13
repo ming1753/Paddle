@@ -31,10 +31,11 @@ class TestMatmulTRTPattern(TensorRTBaseTest):
         }
         self.program_config = {"feed_list": ["x", "y"]}
         self.min_shape = {"x": [1, 3], "y": [3, 2]}
+        self.opt_shape = {"x": [1, 3], "y": [3, 2]}
         self.max_shape = {"x": [5, 3], "y": [3, 2]}
 
     def test_trt_result(self):
-        self.check_trt_result()
+        self.check_trt_result(rtol=1e-3, atol=1e-3)
 
 
 class TestTransposeTRTPattern(TensorRTBaseTest):
@@ -46,6 +47,7 @@ class TestTransposeTRTPattern(TensorRTBaseTest):
         }
         self.program_config = {"feed_list": ["x"]}
         self.min_shape = {"x": [1, 3, 4]}
+        self.opt_shape = {"x": [1, 3, 4]}
         self.max_shape = {"x": [5, 3, 4]}
 
     def test_trt_result(self):
@@ -61,7 +63,72 @@ class TestBmmTRTPattern(TensorRTBaseTest):
         }
         self.program_config = {"feed_list": ["x", "y"]}
         self.min_shape = {"x": [1, 2, 3], "y": [1, 3, 2]}
+        self.opt_shape = {"x": [1, 2, 3], "y": [1, 3, 2]}
         self.max_shape = {"x": [5, 2, 3], "y": [5, 3, 2]}
+
+    def test_trt_result(self):
+        self.check_trt_result()
+
+
+class TestFlipTRTPattern(TensorRTBaseTest):
+    def setUp(self):
+        self.python_api = paddle.flip
+        self.api_args = {
+            "x": np.random.randn(2, 3, 4).astype("float32"),
+            "axis": [0, 2],
+        }
+        self.program_config = {"feed_list": ["x"]}
+        self.min_shape = {"x": [1, 3, 4]}
+        self.opt_shape = {"x": [1, 3, 4]}
+        self.max_shape = {"x": [5, 3, 4]}
+
+    def test_trt_result(self):
+        self.check_trt_result()
+
+
+class TestFlipNegAxisTRTPattern(TensorRTBaseTest):
+    def setUp(self):
+        self.python_api = paddle.flip
+        self.api_args = {
+            "x": np.random.randn(2, 3, 4).astype("float32"),
+            "axis": [-1, -3],
+        }
+        self.program_config = {"feed_list": ["x"]}
+        self.min_shape = {"x": [1, 3, 4]}
+        self.opt_shape = {"x": [1, 3, 4]}
+        self.max_shape = {"x": [5, 3, 4]}
+
+    def test_trt_result(self):
+        self.check_trt_result()
+
+
+class TestFlipIntTRTPattern(TensorRTBaseTest):
+    def setUp(self):
+        self.python_api = paddle.flip
+        self.api_args = {
+            "x": np.random.randn(2, 3, 4).astype("int64"),
+            "axis": [0, 2],
+        }
+        self.program_config = {"feed_list": ["x"]}
+        self.min_shape = {"x": [1, 3, 4]}
+        self.opt_shape = {"x": [1, 3, 4]}
+        self.max_shape = {"x": [5, 3, 4]}
+
+    def test_trt_result(self):
+        self.check_trt_result()
+
+
+class TestFlipIntNegAxisTRTPattern(TensorRTBaseTest):
+    def setUp(self):
+        self.python_api = paddle.flip
+        self.api_args = {
+            "x": np.random.randn(2, 3, 4).astype("int64"),
+            "axis": [-1, -3],
+        }
+        self.program_config = {"feed_list": ["x"]}
+        self.min_shape = {"x": [1, 3, 4]}
+        self.opt_shape = {"x": [1, 3, 4]}
+        self.max_shape = {"x": [5, 3, 4]}
 
     def test_trt_result(self):
         self.check_trt_result()

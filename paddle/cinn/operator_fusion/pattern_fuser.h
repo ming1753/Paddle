@@ -53,6 +53,8 @@ static StmtPattern ConvertToStmtPattern(const PatternContent& content) {
         std::make_shared<InitPatternInstr>(content.op, result.id()));
     return result;
   } else {
+    PADDLE_THROW(::common::errors::InvalidArgument(
+        "Unsupport op for fusion: %s", OpsDebugStr({content.op})));
     auto result =
         UnsupportPattern({content.op}, std::make_shared<FusionTracker>());
     result.tracker_->append(
@@ -97,15 +99,15 @@ static StmtPattern MergePatternImpl(const TrivialPattern& first,
                                     const ReduceTreePattern& second) {
   auto connect_ops = FindDownstreamOps(first.sink_op());
 
-  auto old_childs = second.childs();
-  std::vector<ReduceTreePattern> new_childs;
-  for (const auto& old_child : old_childs) {
-    new_childs.emplace_back(
+  auto old_children = second.children();
+  std::vector<ReduceTreePattern> new_children;
+  for (const auto& old_child : old_children) {
+    new_children.emplace_back(
         FusePatternIfConnected(first, old_child, connect_ops));
   }
 
   return ReduceTreePattern(
-      new_childs,
+      new_children,
       FusePatternIfConnected(first, second.GetRootPattern(), connect_ops),
       std::make_shared<FusionTracker>(first.tracker_, second.tracker_));
 }
@@ -146,7 +148,7 @@ static int InsertUpstreamIntoTree(const ReduceTreePattern& upstream,
     return 1;
   }
   int insert_num = 0;
-  for (auto& child : downstream.childs()) {
+  for (auto& child : downstream.children()) {
     insert_num += InsertUpstreamIntoTree(upstream, child);
   }
   return insert_num;
@@ -155,7 +157,7 @@ static int InsertUpstreamIntoTree(const ReduceTreePattern& upstream,
 static StmtPattern MergePatternImpl(const ReduceTreePattern& upstream,
                                     const ReduceTreePattern& downstream) {
   ReduceTreePattern result = ReduceTreePattern(
-      downstream.childs(),
+      downstream.children(),
       downstream.GetRootPattern(),
       std::make_shared<FusionTracker>(upstream.tracker_,
                                       downstream.tracker_));  // copy first.
@@ -373,14 +375,21 @@ static bool IsLoopFrameworkEqual(const StmtPattern& lhs,
   VLOG(4) << "rhs " << rhs_loops.DebugStr();
 
   // TODO(huangjiyi): support horizontal fusion without reduce dims euqal.
-  auto has_reduce_dim = [](const MaybeLoopFramework& loops) -> bool {
-    return std::any_of(loops.is_reduce.begin(),
-                       loops.is_reduce.end(),
-                       [](bool b) { return b; });
+  const auto get_reduce_loop = [](const MaybeLoopFramework& loop) {
+    LoopExprs reduce_loop;
+    for (int i = 0; i < loop.is_reduce.size(); ++i) {
+      if (loop.is_reduce[i]) {
+        reduce_loop.push_back(loop.loop[i]);
+      }
+    }
+    return reduce_loop;
   };
-  bool reduce_euqal = has_reduce_dim(lhs_loops) && has_reduce_dim(rhs_loops)
-                          ? lhs_loops.is_reduce == rhs_loops.is_reduce
-                          : true;
+  const auto lhs_reduce_loop = get_reduce_loop(lhs_loops);
+  const auto rhs_reduce_loop = get_reduce_loop(rhs_loops);
+
+  bool reduce_euqal = lhs_reduce_loop.empty() || rhs_reduce_loop.empty()
+                          ? true
+                          : lhs_reduce_loop == rhs_reduce_loop;
 
   const auto& squeezed_lhs_loops = SqueezeLoopFramework(lhs_loops);
   const auto& squeezed_rhs_loops = SqueezeLoopFramework(rhs_loops);

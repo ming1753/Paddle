@@ -91,9 +91,9 @@ void SaveFunction(const phi::DenseTensor& x,
   const phi::DeviceContext* dev_ctx = GetDeviceContext(x);
   if (in_dtype != out_dtype) {
     auto out = CastTensorType(dev_ctx, x, out_dtype);
-    paddle::framework::SerializeToStream(fout, out, *dev_ctx);
+    phi::SerializeToStream(fout, out, *dev_ctx);
   } else {
-    paddle::framework::SerializeToStream(fout, x, *dev_ctx);
+    phi::SerializeToStream(fout, x, *dev_ctx);
   }
   fout.close();
   VLOG(6) << "save func done ";
@@ -138,9 +138,9 @@ void SaveCombineFunction(const std::vector<const phi::DenseTensor*>& x,
     auto out_dtype = save_as_fp16 ? phi::DataType::FLOAT16 : in_dtype;
     if (in_dtype != out_dtype) {
       auto out = CastTensorType(dev_ctx, tensor, out_dtype);
-      paddle::framework::SerializeToStream(fout, out, *dev_ctx);
+      phi::SerializeToStream(fout, out, *dev_ctx);
     } else {
-      paddle::framework::SerializeToStream(fout, tensor, *dev_ctx);
+      phi::SerializeToStream(fout, tensor, *dev_ctx);
     }
   }
   fout.close();
@@ -170,9 +170,9 @@ void LoadFunction(const std::string& file_path,
                       0,
                       common::errors::InvalidArgument(
                           "seek with tensor must great than or equal to 0"));
-    paddle::framework::DeserializeFromStream(fin, out, *dev_ctx, seek, shape);
+    phi::DeserializeFromStream(fin, out, *dev_ctx, seek, shape);
   } else {
-    paddle::framework::DeserializeFromStream(fin, out, *dev_ctx);
+    phi::DeserializeFromStream(fin, out, *dev_ctx);
   }
 
   auto in_dtype = out->dtype();
@@ -205,7 +205,7 @@ void LoadCombineFunction(const std::string& file_path,
   const phi::DeviceContext* dev_ctx = GetDeviceContext(*(out->at(0)), place);
   for (size_t i = 0; i < names.size(); i++) {
     auto tensor = out->at(i);
-    paddle::framework::DeserializeFromStream(fin, tensor, *dev_ctx);
+    phi::DeserializeFromStream(fin, tensor, *dev_ctx);
 
     auto in_dtype = tensor->dtype();
     auto out_dtype = load_as_fp16 ? phi::DataType::FLOAT16 : in_dtype;

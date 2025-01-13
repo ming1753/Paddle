@@ -72,8 +72,7 @@ PHI_DEFINE_string(rccl_dir,
 PD_DEFINE_string(xpti_dir, "", "Specify path for loading libxpti.so.");
 #endif
 
-namespace phi {
-namespace dynload {
+namespace phi::dynload {
 
 struct PathNode {
   PathNode() = default;
@@ -594,6 +593,8 @@ void* GetCusolverDsoHandle() {
   return GetDsoHandleFromSearchPath(
       FLAGS_cuda_dir, win_cusolver_lib, true, {cuda_lib_path});
 #endif
+#elif defined(PADDLE_WITH_HIP)
+  return GetDsoHandleFromSearchPath(FLAGS_rocm_dir, "librocsolver.so");
 #else
 #ifdef PADDLE_WITH_PIP_CUDA_LIBRARIES
   return GetDsoHandleFromSearchPath(FLAGS_cuda_dir, "libcusolver.so.11");
@@ -901,5 +902,4 @@ void* GetXPTIDsoHandle() {
   return nullptr;
 #endif
 }
-}  // namespace dynload
-}  // namespace phi
+}  // namespace phi::dynload

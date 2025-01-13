@@ -67,8 +67,7 @@ PD_DECLARE_bool(enable_unused_var_check);
 COMMON_DECLARE_bool(run_kp_kernel);
 PHI_DECLARE_bool(enable_host_event_recorder_hook);
 
-namespace paddle {
-namespace framework {
+namespace paddle::framework {
 
 std::vector<std::tuple<phi::Place, LibraryType>> kKernelPriority = {
     std::make_tuple(phi::GPUPlace(0), LibraryType::kCUDNN),
@@ -193,9 +192,9 @@ static int GetRowSize(const Scope& scope, const std::string& name) {
   return -1;
 }
 
-static LoD GetLoDDebug(const Scope& scope, const std::string& name) {
+static LegacyLoD GetLoDDebug(const Scope& scope, const std::string& name) {
   Variable* var = scope.FindVar(name);
-  auto default_lod = LoD({{}});
+  auto default_lod = LegacyLoD({{}});
 
   if (var == nullptr) {
     return default_lod;
@@ -644,12 +643,12 @@ bool RuntimeInferShapeContext::HasRuntimeAttributes() const {
   return is_runtime;
 }
 
-std::vector<LoD> RuntimeInferShapeContext::GetOutputsLod(
+std::vector<LegacyLoD> RuntimeInferShapeContext::GetOutputsLod(
     const std::string& out) const {
   auto out_it = ctx_.outputs.find(out);
   auto& out_var_list = out_it->second;
 
-  std::vector<LoD> ret;
+  std::vector<LegacyLoD> ret;
   for (auto* out_var : out_var_list) {
     if (out_var != nullptr) {
       auto* out_tensor = out_var->GetMutable<phi::DenseTensor>();
@@ -1095,7 +1094,7 @@ void OperatorBase::GenerateTemporaryNames() {
   }
 }
 
-const phi::DenseTensor* GetLoDTensorOrSelectedRowsValueFromVar(
+const phi::DenseTensor* GetDenseTensorOrSelectedRowsValueFromVar(
     const Variable& var) {
   if (var.IsType<phi::DenseTensor>()) {
     return static_cast<const phi::DenseTensor*>(&(var.Get<phi::DenseTensor>()));
@@ -1108,7 +1107,8 @@ const phi::DenseTensor* GetLoDTensorOrSelectedRowsValueFromVar(
   }
 }
 
-phi::DenseTensor* GetMutableLoDTensorOrSelectedRowsValueFromVar(Variable* var) {
+phi::DenseTensor* GetMutableDenseTensorOrSelectedRowsValueFromVar(
+    Variable* var) {
   if (var->IsType<phi::DenseTensor>()) {
     return var->GetMutable<phi::DenseTensor>();
   } else if (var->IsType<phi::SelectedRows>()) {
@@ -1815,7 +1815,7 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
         if (is_xpu_kp_support) {
           auto expected_kernel_key_library_type = kernel_type_->library_type_;
           kernel_type_->library_type_ = LibraryType::kKP;
-          VLOG(3) << "modifing XPU KP kernel in static graph: "
+          VLOG(3) << "modifying XPU KP kernel in static graph: "
                   << phi_kernel_name
                   << ", using_kernel_key:" << *kernel_type_.get();
           auto try_phi_kernel_key =
@@ -1899,7 +1899,7 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
         if (is_xpu_kp_support) {
           auto expected_kernel_key_library_type = kernel_type_->library_type_;
           kernel_type_->library_type_ = LibraryType::kKP;
-          VLOG(3) << "modifing XPU KP kernel in static graph: "
+          VLOG(3) << "modifying XPU KP kernel in static graph: "
                   << phi_kernel_name
                   << ", using_kernel_key:" << *kernel_type_.get();
           auto try_phi_kernel_key =
@@ -2463,12 +2463,12 @@ void OperatorWithKernel::TransferInplaceVarsBack(
                             common::errors::InvalidArgument(
                                 "The variable[%s] is nullptr.", var_name));
     auto* original_tensor =
-        GetMutableLoDTensorOrSelectedRowsValueFromVar(origin_var);
+        GetMutableDenseTensorOrSelectedRowsValueFromVar(origin_var);
     auto* var = transfer_scope.FindVar(var_name);
     PADDLE_ENFORCE_NOT_NULL(var,
                             common::errors::InvalidArgument(
                                 "The variable[%s] is nullptr.", var_name));
-    auto* transformed_tensor = GetLoDTensorOrSelectedRowsValueFromVar(*var);
+    auto* transformed_tensor = GetDenseTensorOrSelectedRowsValueFromVar(*var);
     original_tensor->ShareDataWith(*transformed_tensor);
   }
 }
@@ -2496,7 +2496,7 @@ void OperatorWithKernel::HandleComplexGradToRealGrad(
         continue;
       }
       auto* grad_tensor =
-          GetMutableLoDTensorOrSelectedRowsValueFromVar(grad_var);
+          GetMutableDenseTensorOrSelectedRowsValueFromVar(grad_var);
       // skip nullptr tensor
       if (grad_tensor == nullptr || !grad_tensor->IsInitialized()) {
         continue;
@@ -2516,7 +2516,7 @@ void OperatorWithKernel::HandleComplexGradToRealGrad(
       if (!VarIsTensor(*var)) {
         continue;
       }
-      const auto* tensor = GetLoDTensorOrSelectedRowsValueFromVar(*var);
+      const auto* tensor = GetDenseTensorOrSelectedRowsValueFromVar(*var);
       PADDLE_ENFORCE_NOT_NULL(
           tensor,
           common::errors::Unavailable(
@@ -2583,7 +2583,7 @@ Scope* OperatorWithKernel::PrepareData(
         continue;
       }
 
-      auto* tensor_in = GetLoDTensorOrSelectedRowsValueFromVar(*var);
+      auto* tensor_in = GetDenseTensorOrSelectedRowsValueFromVar(*var);
 
       // When no_buffer_ins then checking of phi::DenseTensor::holder_ is
       // not a thread safe. And for infershape scenario checks
@@ -3665,5 +3665,4 @@ void OperatorWithKernel::BuildPhiKernelContext(
 #endif
 }
 
-}  // namespace framework
-}  // namespace paddle
+}  // namespace paddle::framework

@@ -420,7 +420,7 @@ std::vector<ir::Tensor> Split(
         out_shape[i],
         [=](const std::vector<Expr>& indice) {
           auto temp = indice;
-          temp[axis] = cinn::common::AutoSimplify(temp[axis] + Expr(start[i]));
+          temp[axis] = optim::ArithSimplify(temp[axis] + Expr(start[i]));
           return A(temp);
         },
         names[i]);
@@ -442,7 +442,7 @@ ir::Tensor Concat(const ir::Tensor& A,
   std::vector<Expr> output_shape = A->shape;
   Expr pivot = A->shape[axis];
   output_shape[axis] =
-      cinn::common::AutoSimplify(output_shape[axis] + B->shape[axis]);
+      optim::ArithSimplify(output_shape[axis] + B->shape[axis]);
   auto res = Compute(
       output_shape,
       [=](const std::vector<Expr>& indice) {
@@ -481,8 +481,8 @@ ir::Tensor Concat(const std::vector<ir::Tensor>& input_tensors,
         ::common::errors::InvalidArgument(
             "Dimensions of inputs tensors in Concat should be equal! Please "
             "check."));
-    output_shape[axis] = cinn::common::AutoSimplify(
-        output_shape[axis] + input_tensors[i]->shape[axis]);
+    output_shape[axis] = optim::ArithSimplify(output_shape[axis] +
+                                              input_tensors[i]->shape[axis]);
   }
 
   auto res = Compute(
@@ -491,7 +491,7 @@ ir::Tensor Concat(const std::vector<ir::Tensor>& input_tensors,
         auto ret = input_tensors[0](indice);
         Expr accumulate_shape = Expr(0);
         for (int i = 0; i < input_size - 1; i++) {
-          accumulate_shape = cinn::common::AutoSimplify(
+          accumulate_shape = optim::ArithSimplify(
               accumulate_shape + input_tensors[i]->shape[axis]);
           std::vector<Expr> new_indice = indice;
           new_indice[axis] =
@@ -872,6 +872,14 @@ std::vector<Tensor> MulBaseCallImpl(common::HygonDCUArchHIP,
   MulBaseCallImplNvHygon(A, B, name, target);
 }
 
+std::vector<Tensor> MulBaseCallImpl(common::HygonDCUArchSYCL,
+                                    const Tensor& A,
+                                    const Tensor& B,
+                                    const std::string& name,
+                                    const cinn::common::Target& target) {
+  MulBaseCallImplNvHygon(A, B, name, target);
+}
+
 std::vector<Tensor> MulBaseCall(const Tensor& A,
                                 const Tensor& B,
                                 const std::string& name,
@@ -1060,7 +1068,7 @@ std::vector<Expr> InferShapeLayoutTransform(
         int dst_prim_index = (*split_index_map)[i][0];
         int dst_sub_index = (*split_index_map)[i][1];
         int factor = (*split_index_map)[i][2];
-        Expr chunk_shape = cinn::common::AutoSimplify(input_shapes[i] / factor);
+        Expr chunk_shape = optim::ArithSimplify(input_shapes[i] / factor);
         Expr block_shape = Expr(factor);
         output_shape[dst_prim_index] = chunk_shape;
         output_shape[dst_sub_index] = block_shape;
@@ -1092,7 +1100,7 @@ std::vector<Expr> InferShapeLayoutTransform(
             ::common::errors::InvalidArgument(
                 "input_shapes[src_sub_index] should be equal to factor"));
         output_shape[i] =
-            cinn::common::AutoSimplify(input_shapes[src_prim_index] * factor);
+            optim::ArithSimplify(input_shapes[src_prim_index] * factor);
       } else if ((*split_index_map)[i].size() == 1) {
         int src_prim_index = (*split_index_map)[i][0];
         output_shape[i] = input_shapes[src_prim_index];
@@ -1156,13 +1164,11 @@ ir::Tensor LayoutTransform(const Tensor& input,
             int sub_index = split_infos[1];
             int factor = split_infos[2];
             if (dst_dim > src_dim) {
-              new_indice[i] = cinn::common::AutoSimplify(
-                  indice[prim_index] * factor + indice[sub_index]);
+              new_indice[i] = optim::ArithSimplify(indice[prim_index] * factor +
+                                                   indice[sub_index]);
             } else {
-              new_indice[prim_index] =
-                  cinn::common::AutoSimplify(indice[i] / factor);
-              new_indice[sub_index] =
-                  cinn::common::AutoSimplify(indice[i] % factor);
+              new_indice[prim_index] = optim::ArithSimplify(indice[i] / factor);
+              new_indice[sub_index] = optim::ArithSimplify(indice[i] % factor);
             }
 
           } else if (split_infos.size() == 1) {
@@ -1639,6 +1645,9 @@ ir::Tensor ScatterAssign(const ir::Tensor& input,
       [&](common::NVGPUArch) { extern_fun_name.assign("cinn_cuda_find_int"); },
       [&](common::HygonDCUArchHIP) {
         extern_fun_name.assign("cinn_hip_find_int");
+      },
+      [&](common::HygonDCUArchSYCL) {
+        extern_fun_name.assign("cinn_sycl_find_int");
       });
 
   auto pos_axis = axis;
@@ -1747,7 +1756,9 @@ ir::Tensor ScatterAdd(const ir::Tensor& input,
             "HygonDCU now ! Please Check.\n"));
       },
       [&](common::NVGPUArch) { return ScatterAddNvHygon(); },
-      [&](common::HygonDCUArchHIP) { return ScatterAddNvHygon(); });
+      [&](std::variant<common::HygonDCUArchHIP, common::HygonDCUArchSYCL>) {
+        return ScatterAddNvHygon();
+      });
 }
 
 }  // namespace pe

@@ -31,7 +31,6 @@
 #include "paddle/fluid/platform/device/gpu/nccl_helper.h"
 #include "paddle/phi/core/distributed/comm_context_manager.h"
 #include "paddle/phi/core/distributed/nccl_comm_context.h"
-COMMON_DECLARE_bool(dynamic_static_unified_comm);
 #endif
 
 #define SCOPE_VARS_READER_LOCK AutoRDLock auto_lock(&vars_lock_);
@@ -350,7 +349,7 @@ static constexpr char kMemcpyH2D[] = "memcpy_h2d";
 static constexpr char kMemcpyD2H[] = "memcpy_d2h";
 static constexpr char kFetchVarName[] = "fetch";
 
-// static_ref_ is the numer of last live ops calculated to statically after
+// static_ref_ is the number of last live ops calculated to statically after
 // `build` the Instructions. dynamic_ref_  is the runtime version ref which will
 // be decreased by one dynamically after the execution of an op (in last ops
 // list). var_ is the related variable
@@ -381,7 +380,7 @@ class VarRefInfo {
   Variable* var_;
 };
 
-// static_dep_ is the numer of dependencies (ops that must run before it) of
+// static_dep_ is the number of dependencies (ops that must run before it) of
 // each op which is calculated to statically. static_dep_  is the runtime
 // version dep which will be decreased by one dynamically after the execution of
 // one dependency op.

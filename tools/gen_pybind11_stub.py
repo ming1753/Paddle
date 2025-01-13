@@ -71,7 +71,7 @@ EXTRA_IMPORTS = {
 # ref:
 # - https://pybind11.readthedocs.io/en/latest/advanced/misc.html#avoiding-cpp-types-in-docstrings
 # - https://pybind11.readthedocs.io/en/latest/advanced/functions.html#default-arguments-revisited
-# we can add some mappings for convertion, e.g. {'paddle::Tensor': 'paddle.Tensor'}
+# we can add some mappings for conversion, e.g. {'paddle::Tensor': 'paddle.Tensor'}
 PYBIND11_ATTR_MAPPING = {}
 
 # some bad full expression pybind11-stubgen can not catch as invalid exp
@@ -84,7 +84,7 @@ PYBIND11_INVALID_FULL_MAPPING = {
     'TensorLike': 'paddle._typing.TensorLike',
     'DTypeLike': 'paddle._typing.DTypeLike',
     'ShapeLike': 'paddle._typing.ShapeLike',
-    'Numberic': 'paddle._typing.Numberic',
+    'Numeric': 'paddle._typing.Numeric',
     'TypeGuard': 'typing_extensions.TypeGuard',
     '_Interpolation': 'paddle.tensor.stat._Interpolation',
     'ParamAttrLike': 'paddle._typing.ParamAttrLike',
@@ -399,7 +399,7 @@ def post_process(output_dir: str):
             replace_bad_attr(filename)
             check_remove_syntax_error(filename)
 
-            # insert moduels if necessary
+            # insert modules if necessary
             insert_import_modules(filename)
 
 

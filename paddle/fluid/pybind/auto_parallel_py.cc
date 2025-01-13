@@ -58,8 +58,7 @@
 
 namespace py = pybind11;  // NOLINT
 
-namespace paddle {
-namespace pybind {
+namespace paddle::pybind {
 
 static bool PyCheckInteger(PyObject *obj) {
 #if PY_VERSION_HEX < 0x03000000
@@ -802,6 +801,26 @@ void BindAutoParallel(py::module *m) {
       },
       py::return_value_policy::reference);
 
+  m->def(
+      "dtensor_to_local",
+      [](py::handle py_tensor) {
+        auto tensor = CastPyArg2Tensor(py_tensor.ptr(), 0);
+        return dtensor_to_local_ad_function(tensor);
+      },
+      py::return_value_policy::reference);
+
+  m->def(
+      "dtensor_from_local",
+      [](py::handle py_tensor,
+         py::handle py_process_mesh,
+         py::handle py_placements) {
+        auto tensor = CastPyArg2Tensor(py_tensor.ptr(), 0);
+        auto process_mesh = CastPyArg2ProcessMesh(py_process_mesh.ptr(), 1);
+        auto placements = CastPyArg2VectorOfPlacement(py_placements.ptr(), 2);
+        return dtensor_from_local_ad_function(tensor, process_mesh, placements);
+      },
+      py::return_value_policy::reference);
+
   // TODO(liuzhenhai): DistributedMapper is not used for now, but
   // dist_mapper_test need the symbols touch DistributedMapper to be linked,
   // remove it later
@@ -945,5 +964,4 @@ infer_backward(const phi::distributed::SpmdRule &self, const py::args &args) {
   return self.InferBackward(ctx);
 }
 
-}  // namespace pybind
-}  // namespace paddle
+}  // namespace paddle::pybind

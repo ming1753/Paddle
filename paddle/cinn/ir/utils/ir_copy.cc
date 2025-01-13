@@ -42,7 +42,15 @@ struct IRCopyVisitor : public ir::IRVisitorRequireReImpl<Expr> {
   bool copy_buffer_node;
 
   Expr Visit(const Expr* op) override {
-    return IRVisitorRequireReImpl::Visit(op);
+    bool is_index = op->is_index();
+    auto copy = IRVisitorRequireReImpl::Visit(op);
+    return copy.set_index(is_index);
+  }
+
+  Expr Visit(const IndexExpr* op) override {
+    Expr e = *op;
+    auto copy = Visit(&e);
+    return copy.set_index(true);
   }
 
   Module Visit(const ir::_Module_* op) {
@@ -265,7 +273,7 @@ struct IRCopyVisitor : public ir::IRVisitorRequireReImpl<Expr> {
     auto domain = Visit(op->domain);
     auto buffer_expr = Expr(op->buffer);
     // TODO(Superjomn) copy the operation.
-    auto operaion = op->operation;
+    auto operation = op->operation;
     auto name = op->name;
     auto tensor = make_shared<_Tensor_>();
 
@@ -281,7 +289,7 @@ struct IRCopyVisitor : public ir::IRVisitorRequireReImpl<Expr> {
     tensor->domain = domain;
     tensor->shape = shape;
     tensor->reduce_axis = op->reduce_axis;
-    tensor->operation = operaion;
+    tensor->operation = operation;
     tensor->name = name;
     tensor->set_type(op->type());
     tensor->axis_ = op->axis_;
@@ -474,7 +482,7 @@ struct IRCopyVisitor : public ir::IRVisitorRequireReImpl<Expr> {
     return IterSplit::Make(source, lower_factor, extent, scale);
   }
   Expr Visit(const ir::IterSum* op) override {
-    std::vector<IndexExpr> args;
+    std::vector<Expr> args;
     for (const auto& v : op->args) {
       args.push_back(Visit(&v));
     }

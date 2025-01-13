@@ -125,9 +125,7 @@ class TestCollectiveAPIRunnerBase:
         rank = args["trainerid"]
         current_endpoint = args["currentendpoint"]
         nranks = 2
-        if args['static_mode'] and (
-            args["use_comm_context"] or args["dynamic_static_unified_comm"]
-        ):
+        if args['static_mode']:
             paddle.distributed.collective._init_parallel_env(args["backend"])
         else:
             paddle.distributed.init_parallel_env()
@@ -187,9 +185,6 @@ def runtime_main(test_class, col_type):
     args["dtype"] = os.getenv("DTYPE")
     args["reduce_type"] = os.getenv("REDUCE_TYPE")
     args["use_comm_context"] = bool(int(os.getenv("USE_COMM_CONTEXT", "0")))
-    args["dynamic_static_unified_comm"] = bool(
-        os.getenv("FLAGS_dynamic_static_unified_comm", "true").lower() == "true"
-    )
     model.run_trainer(args)
 
 
@@ -274,10 +269,10 @@ class TestDistBase(unittest.TestCase):
         tr0_cmd = tr_cmd % (self._python_interp, model_file)
         tr1_cmd = tr_cmd % (self._python_interp, model_file)
         path0 = os.path.join(
-            self.temp_dir.name, "/tmp/tr0_err_%d.log" % os.getpid()
+            self.temp_dir.name, f"/tmp/tr0_err_{os.getpid()}.log"
         )
         path1 = os.path.join(
-            self.temp_dir.name, "/tmp/tr1_err_%d.log" % os.getpid()
+            self.temp_dir.name, f"/tmp/tr1_err_{os.getpid()}.log"
         )
         tr0_pipe = open(path0, "w")
         tr1_pipe = open(path1, "w")

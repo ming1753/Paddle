@@ -137,6 +137,19 @@ class Dim;
   macro__(For)                      \
   macro__(Schedule)                 \
   macro__(Evaluate)
+
+#define NODETY_FORALL_INDEXEXPR(macro__) \
+  macro__(IntImm)                      \
+  macro__(_Var_)                      \
+  macro__(Add)                      \
+  macro__(Sub)                      \
+  macro__(Mul)                    \
+  macro__(Div)                    \
+  macro__(Mod)                     \
+  macro__(Load)               \
+  macro__(Cast)                      \
+  macro__(Min)                 \
+  macro__(Max)
 // clang-format on
 
 //! Define IrNodeTy
@@ -173,6 +186,7 @@ std::ostream& operator<<(std::ostream& os, IrNodeTy type);
 std::ostream& operator<<(std::ostream& os, StmtNodeTy type);
 
 struct Expr;
+struct IndexExpr;
 
 /**
  * The base of all the nodes in the IR.
@@ -208,8 +222,12 @@ class IrNode : public cinn::common::Object {
   //! Verify the current IR node's correctness.
   virtual void Verify() const { CINN_NOT_IMPLEMENTED }
 
+  bool get_index() const;
+  void set_index(bool flag);
+
  protected:
   static constexpr char* __type_info__ = "IRNode";
+  bool is_index_ = false;
   Type type_;
 };
 
@@ -285,7 +303,10 @@ struct ExprNode : public IrNode {
 struct IntImm : public ExprNode<IntImm> {
   int64_t value;
 
-  IntImm(Type t, int64_t v) : ExprNode<IntImm>(t), value(v) { Verify(); }
+  IntImm(Type t, int64_t v) : ExprNode<IntImm>(t), value(v) {
+    if (t.bits() == 32 || t.bits() == 64) set_index(true);
+    Verify();
+  }
 
   void Verify() const override {
     PADDLE_ENFORCE_EQ(
@@ -378,6 +399,7 @@ struct Expr : public IrNodeRef {
   Expr() = default;
   Expr(const Expr& other) : IrNodeRef(other.ptr()) {}
   Expr(IrNode* p) : IrNodeRef(p) {}  // NOLINT
+  Expr(const IndexExpr& e);          // NOLINT
   explicit Expr(const Var& var);
 
   //! Helper function to construct numeric constants of various types.
@@ -405,6 +427,8 @@ struct Expr : public IrNodeRef {
   // @}
 
   Expr& operator=(const Expr& other);
+  Expr& operator=(const IndexExpr& other);
+  Expr& operator=(const Var& other);
 
   // primitive types
   // @{
@@ -453,9 +477,78 @@ struct Expr : public IrNodeRef {
   IndexExpr as_index();
   const IndexExpr as_index() const;
 
+  Expr& set_index(bool flag);
+  const Expr& set_index(bool flag) const;
+
   operator Var();
 
   Type type() const { return p_->type(); }
+};
+
+struct IndexExpr : public IrNodeRef {
+ public:
+  IndexExpr() = default;
+  IndexExpr(const IndexExpr& other) : IrNodeRef(other.ptr()) {}
+  IndexExpr(IrNode* p) : IrNodeRef(p) { p->set_index(true); }  // NOLINT
+  IndexExpr(const Expr& e);                                    // NOLINT
+
+  explicit IndexExpr(int32_t x) : IrNodeRef(new IntImm(Int(32), x)) {}
+  explicit IndexExpr(int64_t x) : IrNodeRef(new IntImm(Int(64), x)) {}
+
+  explicit IndexExpr(Type t, int64_t x)
+      : IrNodeRef(new IntImm(x > INT32_MAX ? Int(64) : t, x)) {}
+
+  bool is_var() const;
+  _Var_* as_var();
+  const _Var_* as_var() const;
+  Var as_var_ref() const;
+
+  int32_t as_int32() const;
+  int64_t as_int64() const;
+
+  bool is_constant() const;
+  int64_t get_constant() const;
+
+  const IndexExpr operand(int32_t i) const;
+
+  Type type() const { return p_->type(); }
+
+  int64_t GetLargestMultiplyPart() const;
+
+  /*
+   * Enum class OptLevel defines optimization levels for the IndexExpr
+   * normalization.
+   *
+   * Level0: only constant folding
+   *   e.g. (x + 3) + 2  ==> x + 5
+   * Level1: constant folding and sequential simplification.
+   *   e.g. x / 2 * 2 + x % 2 ==> x
+   * Level2: Each factor in the expression is attempted to be simplified with
+   * the other factors
+   *   e.g. x / 2 * 2 + y / 2 + 5 + x % 2 ==> y / 2 + x + 5
+   *
+   * Note: Because IndexExpr is generated in order, Short operand is at the
+   * end of the expression, so Level1 is usually used.
+   */
+  enum class OptLevel {
+    Level0 = 0,  // TODO(liujinnan): Only constant folding is performed
+    Level1 = 1,  // Constant folding and sequential simplification are performed
+    Level2 = 2   // Top level, simplify
+  };
+
+  IndexExpr Normalize(OptLevel level = OptLevel::Level1) const;
+
+  bool IsDynamic() const;
+
+  // count the `IndeExpr` length, each node has weight 1, e.g.
+  // S0,          length = 1
+  // S0 + S1,     length = 3
+  // S0 + S1 * 2, length = 5
+  int32_t length() const;
+
+  IndexExpr& operator=(const IndexExpr& other);
+  IndexExpr& operator=(const Expr& other);
+  IndexExpr& operator=(const Var& other);
 };
 
 template <typename T>
@@ -517,7 +610,6 @@ struct BinaryOpNode : public ExprNode<T> {
   Expr& b() { return ExprNode<T>::operand(1); }
   const Expr& a() const { return ExprNode<T>::operand(0); }
   const Expr& b() const { return ExprNode<T>::operand(1); }
-
   Type type() const override { return a().type(); }
 
   void replace(Expr old_op, Expr new_op) {
@@ -606,14 +698,3 @@ void TryElevateInt32ToInt64(const std::vector<Expr>& expr_vec);
 
 }  // namespace ir
 }  // namespace cinn
-
-namespace std {
-
-template <>
-struct hash<cinn::ir::Expr> {
-  size_t operator()(const cinn::ir::Expr& x) const {
-    return reinterpret_cast<size_t>(x.get());
-  }
-};
-
-}  // namespace std

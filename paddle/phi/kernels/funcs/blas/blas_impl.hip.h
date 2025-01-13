@@ -95,8 +95,12 @@ struct CUBlas<float> {
 
   template <typename... ARGS>
   static void TRSM_BATCH(ARGS... args) {
+#if HIP_VERSION >= 30000000
+    PADDLE_ENFORCE_GPU_SUCCESS(phi::dynload::rocblas_strsm_batched(args...));
+#else
     PADDLE_THROW(common::errors::Unimplemented(
         "cublasStrsmBatched is not supported on HIP platform."));
+#endif
   }
 };
 
@@ -164,8 +168,12 @@ struct CUBlas<double> {
 
   template <typename... ARGS>
   static void TRSM_BATCH(ARGS... args) {
+#if HIP_VERSION >= 30000000
+    PADDLE_ENFORCE_GPU_SUCCESS(phi::dynload::rocblas_dtrsm_batched(args...));
+#else
     PADDLE_THROW(common::errors::Unimplemented(
         "cublasDtrsmBatched is not supported on HIP platform."));
+#endif
   }
 };
 
@@ -1506,7 +1514,7 @@ void Blas<phi::GPUContext>::BatchedGETRI(int n,
       a_inv,
       a,
       common::errors::InvalidArgument(
-          "cuBLAS fuction 'cublas<S/D>getrfBatched' cannot be executed "
+          "cuBLAS function 'cublas<S/D>getrfBatched' cannot be executed "
           "in-place. The memory space of output matrix (address: %p) cannot "
           "overlap memory space of input matrix (address: %p).",
           a_inv,
