@@ -132,7 +132,8 @@ def moe_dispatch(
     x: Tensor,
     gating_output: Tensor,
     moe_topk: int,
-    group_moe: bool = True,
+    group_moe: bool = False,
+    topk_only_mode: bool = False,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     """
     Dispatches tokens to experts based on gating probabilities.
@@ -185,7 +186,9 @@ def moe_dispatch(
             permute_indices_per_token,
             expert_scales_float,
             top_k_indices,
-        ) = _C_ops.moe_dispatch(x, gating_output, moe_topk, group_moe)
+        ) = _C_ops.moe_dispatch(
+            x, gating_output, moe_topk, group_moe, topk_only_mode
+        )
         return (
             permute_input,
             token_nums_per_expert,
@@ -222,7 +225,11 @@ def moe_dispatch(
     helper.append_op(
         type='moe_dispatch',
         inputs=inputs,
-        attrs={"moe_topk": moe_topk, "group_moe": group_moe},
+        attrs={
+            "moe_topk": moe_topk,
+            "group_moe": group_moe,
+            "topk_only_mode": topk_only_mode,
+        },
         outputs=outputs_dict,
     )
 

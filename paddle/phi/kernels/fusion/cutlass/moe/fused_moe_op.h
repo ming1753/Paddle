@@ -622,7 +622,15 @@ void topk_gating_softmax_kernelLauncher(const T* input,
                                         const int64_t num_experts,
                                         const int64_t k,
                                         const bool group_moe,
-                                        cudaStream_t stream) {
+                                        cudaStream_t stream,
+                                        const bool topk_only_mode = false) {
+  if (topk_only_mode) {
+    static constexpr int TPB = 256;
+    const auto config_topk = Get1DBlocksAnd2DGridsMoe(num_rows);
+    moe_top_k<T, TPB><<<config_topk.block_per_grid, TPB, 0, stream>>>(
+        input, finished, output, indices, source_row, num_experts, k, num_rows);
+    return;
+  }
   static constexpr int WARPS_PER_TB = 4;
 
   switch (num_experts) {
@@ -1012,7 +1020,8 @@ template void topk_gating_softmax_kernelLauncher(const float*,
                                                  const int64_t,
                                                  const int64_t,
                                                  const bool,
-                                                 cudaStream_t);
+                                                 cudaStream_t,
+                                                 const bool);
 template void topk_gating_softmax_kernelLauncher(const half*,
                                                  const bool*,
                                                  half*,
@@ -1024,7 +1033,8 @@ template void topk_gating_softmax_kernelLauncher(const half*,
                                                  const int64_t,
                                                  const int64_t,
                                                  const bool,
-                                                 cudaStream_t);
+                                                 cudaStream_t,
+                                                 const bool);
 #ifdef PADDLE_CUDA_BF16
 template void topk_gating_softmax_kernelLauncher(const __nv_bfloat16*,
                                                  const bool*,
@@ -1037,7 +1047,8 @@ template void topk_gating_softmax_kernelLauncher(const __nv_bfloat16*,
                                                  const int64_t,
                                                  const int64_t,
                                                  const bool,
-                                                 cudaStream_t);
+                                                 cudaStream_t,
+                                                 const bool);
 #endif
 // ===================== Specializations for init routing
 // =========================

@@ -3416,7 +3416,7 @@
   interfaces : paddle::dialect::InferSymbolicShapeInterface
 
 - op : moe_dispatch
-  args : (Tensor X, Tensor gating_output, int moe_topk = 2, bool group_moe = false)
+  args : (Tensor X, Tensor gating_output, int moe_topk = 2, bool group_moe = false, bool topk_only_mode = false)
   output : Tensor(permute_input), Tensor(token_nums_per_expert), Tensor(permute_indices_per_token), Tensor(expert_scales_float), Tensor(top_k_indices)
   infer_meta :
     func : moe_dispatchInferMeta

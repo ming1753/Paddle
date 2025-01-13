@@ -40,6 +40,7 @@ void MoeDispatchKernel(const Context& ctx,
                        const DenseTensor& gating_output,
                        const int moe_topk,
                        const bool group_moe,
+                       const bool topk_only_mode,
                        DenseTensor* permute_input,
                        DenseTensor* token_nums_per_expert,
                        DenseTensor* permute_indices_per_token,
@@ -143,7 +144,8 @@ void MoeDispatchKernel(const Context& ctx,
       expert_num,
       moe_topk,
       group_moe,
-      ctx.stream());
+      ctx.stream(),
+      topk_only_mode);
 
   sorter_.run(reinterpret_cast<void*>(sorter_ws_ptr),
               sorter_ws_size_bytes,
