@@ -134,6 +134,7 @@ class MoeHelper {
                   const int moe_topk,
                   const bool group_moe,
                   const bool norm_topk_prob,
+                  const float routed_scaling_factor,
                   const std::string moe_type,
                   DenseTensor *output) {
     auto *input_activations = X->data<T>();
@@ -436,6 +437,7 @@ class MoeHelper {
           k,
           static_cast<int>(1),
           norm_topk_prob,
+          routed_scaling_factor,
           ctx.stream());
     } else {
       finalize_moe_routing_kernelLauncher(
@@ -451,6 +453,7 @@ class MoeHelper {
           k,
           static_cast<int>(0),
           norm_topk_prob,
+          routed_scaling_factor,
           ctx.stream());
     }
     VLOG(4) << " Finished EXPERT \n";

@@ -3435,7 +3435,7 @@
   optional : ffn1_bias, ffn1_scale, ffn2_scale
 
 - op : moe_reduce
-  args : (Tensor ffn_out, Tensor expert_scales_float, Tensor permute_indices_per_token, Tensor top_k_indices, Tensor ffn2_bias, bool norm_topk_prob = false)
+  args : (Tensor ffn_out, Tensor expert_scales_float, Tensor permute_indices_per_token, Tensor top_k_indices, Tensor ffn2_bias, bool norm_topk_prob = false, float routed_scaling_factor = 1.0)
   output : Tensor(output)
   infer_meta :
     func : moe_reduceInferMeta

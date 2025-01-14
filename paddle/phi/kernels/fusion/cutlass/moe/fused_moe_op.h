@@ -936,6 +936,7 @@ __global__ void finalize_moe_routing_kernel(
     const int64_t k,
     const int64_t compute_bias,
     const bool norm_topk_prob,
+    const float routed_scaling_factor,
     const int64_t num_rows) {
   const int original_row = blockIdx.x + blockIdx.y * gridDim.x;
   // const int original_row = blockIdx.x;
@@ -969,8 +970,10 @@ __global__ void finalize_moe_routing_kernel(
                           bias_value *
                               static_cast<T>(static_cast<float>(compute_bias)));
     }
+
     thread_output = static_cast<float>(thread_output) /
-                    (norm_topk_prob ? row_rescale : 1.0f);
+                    (norm_topk_prob ? row_rescale : 1.0f) *
+                    routed_scaling_factor;
     reduced_row_ptr[tid] = thread_output;
   }
 }
@@ -988,6 +991,7 @@ void finalize_moe_routing_kernelLauncher(
     const int64_t k,
     const int64_t compute_bias,
     const bool norm_topk_prob,
+    const float routed_scaling_factor,
     cudaStream_t stream) {
   const int threads = std::min(cols, int64_t(1024));
   const auto config_final = Get1DBlocksAnd2DGridsMoe(num_rows);
@@ -1004,6 +1008,7 @@ void finalize_moe_routing_kernelLauncher(
           k,
           compute_bias,
           norm_topk_prob,
+          routed_scaling_factor,
           num_rows);
 }
 
@@ -1094,6 +1099,7 @@ template void finalize_moe_routing_kernelLauncher(const float*,
                                                   const int64_t,
                                                   const int64_t,
                                                   const bool,
+                                                  const float,
                                                   cudaStream_t);
 template void finalize_moe_routing_kernelLauncher(const half*,
                                                   half*,
@@ -1106,6 +1112,7 @@ template void finalize_moe_routing_kernelLauncher(const half*,
                                                   const int64_t,
                                                   const int64_t,
                                                   const bool,
+                                                  const float,
                                                   cudaStream_t);
 #ifdef PADDLE_CUDA_BF16
 template void finalize_moe_routing_kernelLauncher(const __nv_bfloat16*,
@@ -1119,6 +1126,7 @@ template void finalize_moe_routing_kernelLauncher(const __nv_bfloat16*,
                                                   const int64_t,
                                                   const int64_t,
                                                   const bool,
+                                                  const float,
                                                   cudaStream_t);
 #endif
 template void compute_total_rows_before_expert(int*,

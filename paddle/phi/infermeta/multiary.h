@@ -1206,6 +1206,7 @@ void moe_reduceInferMeta(const MetaTensor& ffn_out,
                          const MetaTensor& top_k_indices,
                          const MetaTensor& ffn2_bias,
                          const bool norm_topk_prob,
+                         const float routed_scaling_factor,
                          MetaTensor* output);
 
 void FusedMultiHeadAttentionInferMeta(const MetaTensor& query,

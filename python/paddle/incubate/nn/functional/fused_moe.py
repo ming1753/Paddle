@@ -337,6 +337,7 @@ def moe_reduce(
     top_k_indices: Tensor,
     ffn2_bias: Tensor | None = None,
     norm_topk_prob: bool = False,
+    routed_scaling_factor: float = 1.0,
 ) -> Tensor:
     """
     Reduces the outputs from experts back to the original token order.
@@ -351,6 +352,7 @@ def moe_reduce(
         top_k_indices (Tensor): The indices of the selected experts for each token.
         ffn2_bias (Optional[Tensor]): The biases for the second FFN layer, with shape `[num_experts, 1, d_model]`.
         norm_topk_prob (bool): Whether to normalize the top-k probabilities.
+        routed_scaling_factor(float):  Whether to refactor probabilities.
 
     Returns:
         Tensor: The final output tensor with shape `[batch_size * seq_len, d_model]`.
@@ -387,6 +389,7 @@ def moe_reduce(
             top_k_indices,
             ffn2_bias,
             norm_topk_prob,
+            routed_scaling_factor,
         )
 
     helper = LayerHelper('moe_reduce', **locals())
@@ -408,6 +411,7 @@ def moe_reduce(
         inputs=inputs,
         attrs={
             "norm_topk_prob": norm_topk_prob,
+            "routed_scaling_factor": routed_scaling_factor,
         },
         outputs=outputs_dict,
     )

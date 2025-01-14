@@ -6078,6 +6078,7 @@ void moe_reduceInferMeta(const MetaTensor& ffn_out,
                          const MetaTensor& top_k_indices,
                          const MetaTensor& ffn2_bias,
                          const bool norm_topk_prob,
+                         const float routed_scaling_factor,
                          MetaTensor* output) {
   auto ffn_out_dims = ffn_out.dims();
   const int top_k = top_k_indices.dims()[1];

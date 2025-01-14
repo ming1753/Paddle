@@ -87,6 +87,7 @@ void FusedMoeKernel(const Context& ctx,
                          moe_topk,
                          group_moe,
                          norm_topk_prob,
+                         1.0,
                          "ffn",
                          out);
 }

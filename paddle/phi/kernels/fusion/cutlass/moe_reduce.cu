@@ -50,6 +50,7 @@ void MoeReduceKernel(const Context& ctx,
                      const DenseTensor& top_k_indices,
                      const paddle::optional<DenseTensor>& ffn2_bias,
                      const bool norm_topk_prob,
+                     const float routed_scaling_factor,
                      DenseTensor* output) {
   const int topk = top_k_indices.dims()[1];
   const int num_rows = ffn_out.dims()[0] / topk;
@@ -68,6 +69,7 @@ void MoeReduceKernel(const Context& ctx,
       topk,
       static_cast<int>(1),
       norm_topk_prob,
+      routed_scaling_factor,
       ctx.stream());
 }
 
