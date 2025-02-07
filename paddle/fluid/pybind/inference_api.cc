@@ -37,7 +37,6 @@
 #include "paddle/fluid/inference/api/paddle_pass_builder.h"
 #include "paddle/fluid/inference/api/paddle_tensor.h"
 #include "paddle/fluid/inference/utils/io_utils.h"
-#include "paddle/fluid/pybind/cuda_multiprocess_helper.h"
 #include "paddle/fluid/pybind/eager.h"
 #include "paddle/fluid/pybind/eager_utils.h"
 #include "paddle/phi/api/include/tensor.h"
@@ -45,6 +44,10 @@
 
 #if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
 #include "paddle/phi/core/cuda_stream.h"
+#endif
+
+#if defined(PADDLE_WITH_CUDA)
+#include "paddle/fluid/pybind/cuda_multiprocess_helper.h"
 #endif
 
 #ifdef PADDLE_WITH_ONNXRUNTIME
@@ -255,14 +258,14 @@ void PaddleInferShareExternalDataByPtrName(
     const std::vector<int> &shape,
     int dtype,
     int place) {
+#if defined(PADDLE_WITH_CUDA)
   phi::AllocationType place_ = static_cast<phi::AllocationType>(place);
   paddle_infer::PlaceType place_type = ToPaddleInferPlace(place_);
 
   volatile shmStruct *shm = NULL;
   sharedMemoryInfo info;
   if (sharedMemoryOpen(shm_name.c_str(), sizeof(shmStruct), &info) != 0) {
-    printf("Failed to create shared memory slab\n");
-    exit(EXIT_FAILURE);
+    PADDLE_THROW(phi::errors::Fatal("Failed to create shared memory slab."));
   }
   shm = (volatile shmStruct *)info.addr;
   void *ptr = nullptr;
@@ -272,7 +275,6 @@ void PaddleInferShareExternalDataByPtrName(
                            cudaIpcMemLazyEnablePeerAccess));
 
   // NOTE(Zhenyu Li): Unable to enter the correct branch when using enum
-  // types(why???)) 22: bfloat16, 10: float32, 15: float16, 3: int8, 2: uint8
   if (dtype == 22) {
     phi::dtype::bfloat16 *data_ptr =
         reinterpret_cast<phi::dtype::bfloat16 *>(ptr);
@@ -296,8 +298,11 @@ void PaddleInferShareExternalDataByPtrName(
         "UINT8, INT8, FLOAT32, BFLOAT16 and FLOAT16, but got %d.",
         dtype));
   }
-  // checkCudaErrors(cudaIpcCloseMemHandle(ptr));
   sharedMemoryClose(&info);
+#else
+  PADDLE_THROW(phi::errors::Unimplemented(
+      "share_external_data_by_ptr only supports CUDA device."));
+#endif
 }
 
 void PaddleInferShareExternalData(paddle_infer::Tensor &tensor,  // NOLINT
