@@ -301,7 +301,7 @@ void PaddleInferShareExternalDataByPtrName(
   sharedMemoryClose(&info);
 #else
   PADDLE_THROW(phi::errors::Unimplemented(
-      "share_external_data_by_ptr only supports CUDA device."));
+      "share_external_data_by_ptr_name only supports CUDA device."));
 #endif
 }
 
