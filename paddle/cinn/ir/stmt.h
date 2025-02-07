@@ -157,11 +157,15 @@ class _Block_ : public cinn::common::Object {
 
 class BlockRef : public cinn::common::Shared<Object> {
  public:
+  BlockRef() = default;
   explicit BlockRef(const std::vector<StmtRef>& stmts)
       : BlockRef(_Block_::Make(stmts)) {}
-  CINN_DEFINE_OBJECT_REF_METHODS(BlockRef,
-                                 cinn::common::Shared<Object>,
-                                 _Block_)
+  explicit BlockRef(_Block_* n) : cinn::common::Shared<Object>(n) {}
+  CINN_DEFINE_COPY_MOVE_AND_ASSIGN_FOR_OBJECT_REF(BlockRef);
+  const _Block_* operator->() const {
+    return static_cast<const _Block_*>(this->p_);
+  }
+  _Block_* operator->() { return static_cast<_Block_*>(this->p_); }
 };
 
 class _Let_ : public _Stmt_ {

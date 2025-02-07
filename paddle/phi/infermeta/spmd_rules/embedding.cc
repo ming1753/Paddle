@@ -239,7 +239,7 @@ SpmdInfo EmbeddingGradInferSpmd(const DistMetaTensor& x,
 
   if (sparse) {
     PADDLE_THROW(common::errors::InvalidArgument(
-        "EmbeddingGradInferSpmd does't support sparse currently."));
+        "EmbeddingGradInferSpmd doesn't support sparse currently."));
   }
 
   // Propagate sharding info using composite operators.

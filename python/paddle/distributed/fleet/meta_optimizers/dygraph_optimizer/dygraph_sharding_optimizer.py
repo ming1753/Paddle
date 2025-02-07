@@ -767,11 +767,11 @@ class DygraphShardingOptimizerV2:
             color_color = -1
             color_group = comm_group
             if isinstance(color, dict):
-                # 如果 color 是 dict:{'color': "1", 'group': group}
+                # if color is dict: param.color = {'color': "1", 'group': group}
                 color_color = color.get('color', -1)
                 color_group = color.get('group', comm_group)
             else:
-                # 如果 color 是直接赋值:param.color = 1
+                # if color is not a dict: param.color = 1
                 color_color = color
             color_dict[(color_color, color_group)].append(param)
 

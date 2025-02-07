@@ -340,7 +340,7 @@ static CutlassGemmConfig estimate_best_config_from_occupancies(
 
   if (best_config.tile_config == CutlassTileConfig::ChooseWithHeuristic) {
     throw std::runtime_error(
-        "[fpA_intB_gemm Error] Heurisitc failed to find a valid config.");
+        "[fpA_intB_gemm Error] Heuristic failed to find a valid config.");
   }
   VLOG(3) << "m n k:" << m << " " << n << " " << k
           << " with best_config: split_factor: " << best_config.split_k_factor

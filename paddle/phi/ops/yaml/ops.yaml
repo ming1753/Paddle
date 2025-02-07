@@ -762,7 +762,7 @@
     param : [x, nranks]
   kernel :
     func : c_concat
-  traits : paddle::dialect::ForwardOnlyTrait
+  backward: c_concat_grad
 
 - op : c_identity
   args : (Tensor x, int ring_id, bool use_calc_stream, bool use_model_parallel)
@@ -914,6 +914,7 @@
   infer_meta :
     func : UnchangedInferMeta
     param : [x]
+    spmd_rule : ClipInferSpmd
   kernel :
     func : clip
     data_type : x
@@ -3385,7 +3386,7 @@
 
 - op : meshgrid
   args : (Tensor[] inputs)
-  output : Tensor[]{inputs.size()}
+  output : Tensor[](out){inputs.size()}
   infer_meta :
     func : MeshgridInferMeta
   kernel :
@@ -4434,6 +4435,7 @@
     skip_transform : input
   interfaces : paddle::dialect::InferSymbolicShapeInterface
   traits : paddle::dialect::ForwardOnlyTrait
+  no_need_buffer : input
 
 - op : shape64
   args : (Tensor input)
@@ -4447,6 +4449,7 @@
     skip_transform : input
   interfaces : paddle::dialect::InferSymbolicShapeInterface
   traits : paddle::dialect::ForwardOnlyTrait
+  no_need_buffer : input
 
 - op : shard_index
   args : (Tensor input, int index_num, int nshards, int shard_id, int ignore_value=-1)

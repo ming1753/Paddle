@@ -26,6 +26,9 @@ from typing import (
 )
 
 import paddle
+from paddle.jit.sot.opcode_translator.executor.variables.base import (
+    VariableBase,
+)
 
 from .... import psdb
 from ....profiler import EventGuard
@@ -66,7 +69,7 @@ from ..tracker import (
     GetIterTracker,
     Tracker,
 )
-from .base import VariableBase, VariableFactory
+from .base import VariableFactory
 from .basic import (
     ConstantVariable,
     ObjectVariable,
@@ -361,7 +364,6 @@ class MethodVariable(CallableVariable):
         fn (VariableBase): The method to be wrapped.
         graph(FunctionGraph): The FunctionGraph object that this variable is associated with.
         tracker(Tracker): The Tracker object that tracks the information of this variable.
-        method_name (str): The name of the method to be wrapped.
     """
 
     def __init__(
@@ -370,13 +372,10 @@ class MethodVariable(CallableVariable):
         fn: VariableBase,
         graph: FunctionGraph,
         tracker: Tracker,
-        *,
-        method_name: str | None = None,
     ):
         super().__init__(graph, tracker)
         self.bound_instance = bound_instance
         self.fn = fn
-        self.method_name = method_name
 
     def get_py_value(self, allow_tensor=False):
         return self.fn.get_py_value().__get__(
@@ -385,12 +384,18 @@ class MethodVariable(CallableVariable):
         )
 
     def _reconstruct(self, pycode_gen):
-        assert self.method_name is not None
-        self.tensor.reconstruct(pycode_gen)
-        pycode_gen.gen_load_attr(self.method_name)
+        # We bind the method to the instance before calling the method
+        self.fn.reconstruct(pycode_gen)
+        pycode_gen.gen_load_method("__get__")
+        self.bound_instance.reconstruct(pycode_gen)
+        pycode_gen.gen_call_function(1)
 
     def call_function(self, /, *args, **kwargs):
         return self.fn(*(self.bound_instance, *args), **kwargs)
+
+    def flatten_inner_vars(self) -> list[VariableBase]:
+        # The method's inner_vars is from its bound_instance
+        return self.bound_instance.flatten_inner_vars()
 
     @staticmethod
     def wrap_method(
@@ -400,7 +405,6 @@ class MethodVariable(CallableVariable):
         tracker: Tracker,
         instance: VariableBase | None = None,
         fn: VariableBase | None = None,
-        method_name: str | None = None,
     ):
         # NOTE(SigureMo): Since the method_self need method_var as the obj
         # of the tracker, we need to temporarily set the tracker of method_self
@@ -420,7 +424,6 @@ class MethodVariable(CallableVariable):
         method_var = MethodVariable(
             instance_var,
             fn_var,
-            method_name=method_name,
             graph=graph,
             tracker=tracker,
         )
@@ -441,7 +444,8 @@ class MethodVariable(CallableVariable):
     @property
     def main_info(self) -> dict[str, Any]:
         return {
-            "method": self.method_name,
+            "function": self.fn,
+            "instance": self.bound_instance,
         }
 
 

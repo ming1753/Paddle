@@ -31,7 +31,7 @@ gather_srcs(
   resize_buffer.cc
   update_buffer_axis_pass.cc
   trans_buffer_with_dynamic_shape.cc
-  schedule_block_dce_pass.cc
+  schedule_block_dce.cc
   eliminate_common_factor_of_local_index.cc
   if_fusion_pass.cc
   merge_block_utils.cc
@@ -45,10 +45,3 @@ gather_srcs(
 if(WITH_CUDA OR WITH_ROCM)
   gather_srcs(cinnapi_src SRCS transform_gpu_forloop.cc)
 endif()
-
-cinn_cc_test(test_replace_call_with_expr SRCS replace_call_with_expr_test.cc
-             DEPS cinncore)
-
-cinn_cc_test(test_cast_simplify SRCS cast_simplify_test.cc DEPS cinncore)
-cinn_cc_test(test_replace_cross_thread_reduction SRCS
-             replace_cross_thread_reduction_test.cc DEPS cinncore)

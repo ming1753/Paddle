@@ -64,7 +64,7 @@ However the var's format is '{p}'."""
 def _process_conditions(conditions):
     """
     Desc:
-        Input condition expression in cmake grammar and return a string warpped by 'AND ()'.
+        Input condition expression in cmake grammar and return a string wrapped by 'AND ()'.
         If the conditions string is empty, return an empty string.
     Example 1:
         Input: "LINUX"
@@ -80,7 +80,7 @@ def _process_conditions(conditions):
     return [c.strip() for c in conditions]
 
 
-def _proccess_archs(arch):
+def _process_archs(arch):
     """
     desc:
         Input archs options and warp it with 'WITH_', 'OR' and '()' in cmakelist grammar.
@@ -114,7 +114,7 @@ def _proccess_archs(arch):
 def _process_os(os_):
     """
     Desc:
-        Input os options and output warpped options with 'OR' and '()'
+        Input os options and output wrapped options with 'OR' and '()'
         If the input is empty, return "LOCAL_ALL_PLAT"
     Example 1:
         Input: "WIN32"
@@ -166,7 +166,7 @@ def _file_with_extension(prefix, suffixes):
 def _process_name(name, curdir):
     """
     Desc:
-        check whether name is with a legal format and check whther the test file exists.
+        check whether name is with a legal format and check whether the test file exists.
     """
     name = name.strip()
     assert re.compile("^test_[0-9a-zA-Z_]+").search(name), (
@@ -451,7 +451,7 @@ class CMakeGenerator:
 
         envs = _process_envs(envs)
         conditions = _process_conditions(conditions)
-        archs = _proccess_archs(archs)
+        archs = _process_archs(archs)
         os_ = _process_os(os_)
         run_serial = _process_run_serial(run_serial)
 
@@ -626,13 +626,13 @@ if __name__ == "__main__":
         type=lambda x: x.lower() not in ["false", "0", "off"],
         required=False,
         default=False,
-        help="Only check wheather the CMake files should be rewriten, do not write it enven if it should be write",
+        help="Only check whether the CMake files should be rewritten, do not write it even if it should be write",
     )
     args = parser.parse_args()
 
     assert not (
         len(args.files) == 0 and len(args.dirpaths) == 0
-    ), "You must provide at leate one file or dirpath"
+    ), "You must provide at least one file or dirpath"
     current_work_dirs = []
     if len(args.files) >= 1:
         for p in args.files:

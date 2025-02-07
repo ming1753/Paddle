@@ -930,6 +930,18 @@ class Engine:
                 lambda op: bool(op.has_attr('op_role') and op.op_role == 0),
             )
 
+        if (
+            self._strategy.fused_passes.fused_passes_list is not None
+            and "fused_gemm_epilogue_pass"
+            in self._strategy.fused_passes.fused_passes_list
+        ):
+            pm = pir.PassManager()
+            pm.add_pass("fused_gemm_epilogue_pass", {})
+            pm.run(dense_program)
+            self._strategy.fused_passes.fused_passes_list.remove(
+                "fused_gemm_epilogue_pass"
+            )
+
         if self._strategy.pipeline.enable:
             self._job_plan = pipeline_pass(
                 [dense_program], [dense_program], self._strategy.pipeline

@@ -371,7 +371,7 @@ __global__ void masked_multihead_attention_kernel(
     qk = block_sum<WARPS_PER_RED>(&red_smem[WARPS_PER_RED], qk);
   }
 
-  // Let only the last cuda TheradBlock compute the final q*k.
+  // Let only the last cuda ThreadBlock compute the final q*k.
   if (tid == 0 && is_last_block) {
     // NOTE(wangxi): mask must be 0.0
     // T mask = params.attn_mask[

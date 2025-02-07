@@ -121,8 +121,9 @@ class SumOpPattern : public pir::OpRewritePattern<paddle::dialect::SumOp> {
     if (dtype != phi::DataType::UNDEFINED &&
         dtype != paddle::dialect::TransToPhiDataType(in_data_type)) {
       in = rewriter.Build<paddle::dialect::CastOp>(in, dtype).result(0);
-    } else if (in_data_type.isa<pir::Int32Type>() ||
-               in_data_type.isa<pir::BoolType>()) {
+    } else if (dtype == phi::DataType::UNDEFINED &&
+               (in_data_type.isa<pir::Int32Type>() ||
+                in_data_type.isa<pir::BoolType>())) {
       in = rewriter.Build<paddle::dialect::CastOp>(in, phi::DataType::INT64)
                .result(0);
     }

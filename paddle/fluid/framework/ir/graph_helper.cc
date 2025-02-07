@@ -579,8 +579,8 @@ void UpdateControlOpSkipEagerDeletionVars(const Node &node,
                                           const std::string &control_type) {
   // Node(zhangbo): SkipEagerDeletionVars pass policy for control flow class op:
   // 1) if op is in main_block: SkipEagerDeletionVars information will be
-  // writted into Graph OpNode which wrapped by OpHandleBase; 2) if op is in
-  // sub_block: SkipEagerDeletionVars information will be writted into graph's
+  // written into Graph OpNode which wrapped by OpHandleBase; 2) if op is in
+  // sub_block: SkipEagerDeletionVars information will be written into graph's
   // OriginProgram OpDesc. Please refer to
   // FindAllConditionalBlockAndConditionalBlockGradOp in
   // "paddle/fluid/operators/controlflow/conditional_block_op_helper.cc"

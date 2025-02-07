@@ -465,7 +465,7 @@ class ProgramHelper:
 
         amp_stragety = dist_context.strategy.amp
         amp_config = copy.deepcopy(amp_stragety.to_dict())
-        need_cast_paramter = amp_stragety.enable and amp_config["level"] in [
+        need_cast_parameter = amp_stragety.enable and amp_config["level"] in [
             "o2",
             "o3",
         ]
@@ -516,14 +516,14 @@ class ProgramHelper:
                     param.numpy(), dist_attr
                 )
                 param_tensor.set(sliced_param, place)
-                if not need_cast_paramter:
+                if not need_cast_parameter:
                     param.get_tensor()._clear()
             elif param.is_dist():
                 dense_tensor = global_scope().var(param.name).get_tensor()
                 dense_tensor._share_data_with(param.get_tensor().get_tensor())
 
         # transform the parameter in eager mode for amp.
-        if need_cast_paramter:
+        if need_cast_parameter:
             for param in self.concrete_program.parameters:
                 amp_dtype = amp_config["dtype"]
                 scope_var = global_scope().find_var(param.name)

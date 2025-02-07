@@ -338,5 +338,55 @@ class TestRoundFloatTRTPattern(TensorRTBaseTest):
         self.check_trt_result(precision_mode="fp16")
 
 
+def yolo_box(x, img_size):
+    x = paddle.to_tensor(x)
+    img_size = paddle.to_tensor(img_size)
+    boxes, scores = paddle.vision.ops.yolo_box(
+        x,
+        img_size=img_size,
+        anchors=[10, 13, 16, 30],
+        class_num=2,
+        conf_thresh=0.01,
+        downsample_ratio=8,
+        clip_bbox=True,
+        scale_x_y=1.0,
+    )
+    return boxes, scores
+
+
+class TestYoloBoxPattern(TensorRTBaseTest):
+    def setUp(self):
+        self.python_api = yolo_box
+        self.api_args = {
+            "x": np.random.randn(2, 14, 8, 8).astype("float32"),
+            "img_size": np.ones([2, 2]).astype("int32"),
+        }
+        self.program_config = {"feed_list": []}
+
+        self.min_shape = {}
+        self.opt_shape = {}
+        self.max_shape = {}
+
+    def test_trt_result(self):
+        self.check_trt_result()
+
+
+class TestYoloBoxCase1Pattern(TensorRTBaseTest):
+    def setUp(self):
+        self.python_api = yolo_box
+        self.api_args = {
+            "x": np.random.randn(2, 14, 8, 8).astype("float32"),
+            "img_size": np.ones([2, 2]).astype("int32"),
+        }
+        self.program_config = {"feed_list": []}
+
+        self.min_shape = {}
+        self.opt_shape = {}
+        self.max_shape = {}
+
+    def test_trt_fp16_result(self):
+        self.check_trt_result(rtol=1e-3, atol=1e-3, precision_mode="fp16")
+
+
 if __name__ == '__main__':
     unittest.main()

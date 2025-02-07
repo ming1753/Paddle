@@ -584,6 +584,8 @@ ir::Module IRCopy(const Module& m, bool copy_buffer_node) {
 ir::LoweredFunc IRCopy(const ir::LoweredFunc& x, bool copy_buffer_node) {
   IRCopyVisitor visitor(copy_buffer_node);
   auto copied = visitor.Visit(x.As<ir::_LoweredFunc_>());
+  // TODO(Dmovic): Update ir copy when remove expr body.
+  copied->body_block = x->body_block;
   return copied;
 }
 

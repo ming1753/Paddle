@@ -266,7 +266,7 @@ Expr GetStoreOfSBlock(const Expr& block) {
   PADDLE_ENFORCE_NOT_NULL(block.As<ScheduleBlockRealize>(),
                           ::common::errors::InvalidArgument(
                               "Failed to cast block to ScheduleBlockRealize."));
-  std::set<Expr> find_store = ir_utils::CollectIRNodesWithoutTensor(
+  std::vector<Expr> find_store = ir_utils::CollectIRNodesWithoutTensor(
       block, [&](const Expr* x) { return x->As<Store>(); }, true);
   PADDLE_ENFORCE_EQ(find_store.size(),
                     1U,

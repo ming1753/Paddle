@@ -44,6 +44,8 @@
 #include "paddle/cinn/optim/vectorize_loops.h"
 #include "paddle/cinn/pass/pass_manager.h"
 
+PD_DECLARE_bool(cinn_enable_vectorize);
+
 namespace cinn {
 namespace optim {
 

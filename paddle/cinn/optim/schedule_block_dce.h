@@ -16,9 +16,10 @@
  * This file implements the strategy to remove the unnecessary schedule_block.
  */
 #pragma once
+#include <vector>
+
 #include "paddle/cinn/common/common.h"
 #include "paddle/cinn/ir/ir.h"
-#include "paddle/cinn/pass/pass.h"
 
 namespace cinn {
 namespace optim {
@@ -55,8 +56,8 @@ namespace optim {
  * be reduced.
  *
  */
-void EliminateDeadScheduleBlock(std::vector<std::string> output_names_,
-                                ir::stmt::BlockRef block);
+void EliminateDeadScheduleBlock(Expr* e,
+                                const std::vector<std::string>& output_names);
 
 }  // namespace optim
 }  // namespace cinn

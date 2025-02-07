@@ -40,12 +40,15 @@
 #include "paddle/pir/include/pass/pass_registry.h"
 
 #include "paddle/common/flags.h"
+#include "paddle/common/macros.h"
 
 #ifdef PADDLE_WITH_DNNL
 #include "paddle/fluid/pir/dialect/operator/ir/onednn_op.h"
 #include "paddle/fluid/pir/dialect/operator/ir/op_onednn_dialect.h"
 #include "paddle/fluid/pir/dialect/operator/trait/onednn.h"
 #endif
+
+REGISTER_FILE_SYMBOLS(sub_graph_detector);
 namespace pir {
 std::vector<pir::Operation*> InverselyTopologicalSort(pir::Block* block) {
   std::vector<pir::Operation*> sort_ops;
@@ -464,13 +467,14 @@ void SubgraphDetector::MergeSource2Target(const SubGraphPtr& source,
 
 SubgraphDetector::SubgraphDetector(pir::Block* block,
                                    const OpClassifier& classifier) {
-  // init sort_ops_ in reverse topo order
-  sort_ops_ = InverselyTopologicalSort(block);
-  // init op2index_ in topo order
+  // init sort_ops_ in reverse topo order and op2index_ in topo order
   int index = 0;
   for (auto& op : *block) {
+    sort_ops_.push_back(&op);
     op2index_[&op] = index++;
   }
+  std::reverse(sort_ops_.begin(), sort_ops_.end());
+
   // construct subgraphs and upstream/downstream relation
   std::vector<SubGraphPtr> subgraph_list;
   for (const auto& op : sort_ops_) {
