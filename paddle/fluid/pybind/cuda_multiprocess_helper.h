@@ -30,30 +30,17 @@
 #include <winternl.h>
 #include <iostream>
 #else
-#include <errno.h>
 #include <fcntl.h>
 #include <memory.h>
-#include <stdio.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <cerrno>
+#include <cstdio>
 #endif
-#include <vector>
-
-#define checkCudaErrors(call)             \
-  do {                                    \
-    cudaError_t err = call;               \
-    if (err != cudaSuccess) {             \
-      printf("CUDA error at %s %d: %s\n", \
-             __FILE__,                    \
-             __LINE__,                    \
-             cudaGetErrorString(err));    \
-      exit(EXIT_FAILURE);                 \
-    }                                     \
-  } while (0)
 
 typedef struct shmStruct_st {
   size_t nprocesses;

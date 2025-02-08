@@ -269,7 +269,7 @@ void PaddleInferShareExternalDataByPtrName(
   }
   shm = (volatile shmStruct *)info.addr;
   void *ptr = nullptr;
-  checkCudaErrors(
+  PADDLE_ENFORCE_GPU_SUCCESS(
       cudaIpcOpenMemHandle(&ptr,
                            *(cudaIpcMemHandle_t *)&shm->memHandle,  // NOLINT
                            cudaIpcMemLazyEnablePeerAccess));
